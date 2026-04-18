@@ -32,3 +32,6 @@ python/
 # Virtual environments
 venv/
 .venv/
+models/
+test_audio.*
+.venv/
