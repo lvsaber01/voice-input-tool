@@ -216,12 +216,22 @@ def main():
             if tray:
                 tray.stop()
 
+        def _on_tray_switch_mode():
+            """托盘菜单切换模式"""
+            current = config.mode
+            new_mode = "realtime" if current == "batch" else "batch"
+            config.mode = new_mode
+            if tray:
+                tray.set_mode(new_mode)
+            logger.info("模式切换: %s → %s", current, new_mode)
+
         tray = TrayIcon(
             on_start=_on_tray_start_stop,
             on_stop=_on_tray_start_stop,
             on_settings=_on_tray_settings,
             on_quit=_on_tray_quit,
             on_retry=_on_tray_retry_model,
+            on_switch_mode=_on_tray_switch_mode,
         )
 
         # 8. 初始化 CoreEngine

@@ -1,0 +1,5 @@
+# macOS 额外依赖
+pynput>=1.7.6
+pyautogui>=0.9.54
+pyobjc-core>=10.0
+pyobjc-framework-Quartz>=10.0

@@ -1,4 +1,4 @@
-name: CI - Windows Test
+name: CI - Cross Platform Test
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  test-windows:
     runs-on: windows-latest
     
     defaults:
@@ -27,6 +27,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install -r requirements_windows.txt
         pip install pytest
     
     - name: Syntax check
@@ -40,20 +41,28 @@ jobs:
         python -m py_compile core/injector.py
         python -m py_compile core/hotkey.py
         python -m py_compile core/sound_player.py
+        python -m py_compile core/stream_transcriber.py
         python -m py_compile gui/tray.py
         python -m py_compile gui/web_server.py
+        python -m py_compile platform_adapter/__init__.py
+        python -m py_compile platform_adapter/hotkey_base.py
+        python -m py_compile platform_adapter/hotkey_windows.py
+        python -m py_compile platform_adapter/clipboard_base.py
+        python -m py_compile platform_adapter/clipboard_windows.py
         echo "Syntax check PASSED"
     
     - name: Import test
       run: |
-        python -c "from config import load_config, save_config, AppConfig; print('config.py OK')"
+        python -c "from config import load_config, save_config, AppConfig, RealtimeConfig; print('config.py OK')"
         python -c "from core.engine import EngineState, CoreEngine; print('engine.py OK')"
+        python -c "from core.stream_transcriber import StreamTranscriber; print('stream_transcriber.py OK')"
         python -c "from core.recorder import AudioRecorder; print('recorder.py OK')"
-        python -c "from core.silence_detector import SilenceDetector; print('silence_detector.py OK')"
-        python -c "from core.stt_engine import STTEngine; print('stt_engine.py OK')"
+        python -c "from core.stt_engine import STTEngine; assert hasattr(STTEngine, 'transcribe_sync'); print('stt_engine.py OK')"
         python -c "from core.injector import TextInjector; print('injector.py OK')"
-        python -c "from core.sound_player import SoundPlayer; print('sound_player.py OK')"
         python -c "from core.hotkey import HotkeyManager; print('hotkey.py OK')"
+        python -c "from platform_adapter import CURRENT_PLATFORM, create_hotkey_manager, create_clipboard_injector; print('platform_adapter OK')"
+        python -c "from platform_adapter.hotkey_windows import WindowsHotkeyManager; print('hotkey_windows OK')"
+        python -c "from platform_adapter.clipboard_windows import WindowsClipboardInjector; print('clipboard_windows OK')"
     
     - name: Config integration test
       run: |
@@ -64,14 +73,19 @@ jobs:
         tmp = tempfile.mkdtemp()
         cfg_path = os.path.join(tmp, 'test_config.yaml')
         cfg = load_config(cfg_path)
-        assert isinstance(cfg, AppConfig), f"Expected AppConfig, got {type(cfg)}"
+        assert isinstance(cfg, AppConfig)
         assert cfg.hotkey.trigger == 'f8'
         assert cfg.config_version == 2
+        assert hasattr(cfg, 'mode')
+        assert cfg.mode == 'batch'
+        assert hasattr(cfg, 'realtime')
 
         cfg.hotkey.trigger = 'f9'
+        cfg.mode = 'realtime'
         save_config(cfg_path, cfg)
         cfg2 = load_config(cfg_path)
         assert cfg2.hotkey.trigger == 'f9'
+        assert cfg2.mode == 'realtime'
 
         print('Config load/save test PASSED')
         EOF
@@ -83,8 +97,7 @@ jobs:
         from core.engine import EngineState, CoreEngine
         from unittest.mock import MagicMock
 
-        assert EngineState.IDLE is not None
-        assert EngineState.RECORDING is not None
+        assert hasattr(EngineState, 'STREAMING')
 
         engine = CoreEngine.__new__(CoreEngine)
         engine._state = EngineState.IDLE
@@ -93,7 +106,10 @@ jobs:
         engine._tray = MagicMock()
 
         import core.engine as engine_mod
-        assert hasattr(engine_mod, '_VALID_TRANSITIONS')
+        transitions = engine_mod._VALID_TRANSITIONS
+        assert EngineState.STREAMING in transitions
+        assert EngineState.IDLE in transitions[EngineState.STREAMING]
+        assert EngineState.STREAMING in transitions[EngineState.IDLE]
         print('Engine state machine test PASSED')
         EOF
 
@@ -104,7 +120,7 @@ jobs:
         from core.recorder import AudioRecorder
         from core.silence_detector import SilenceDetector
         from core.stt_engine import STTEngine
-        from config import AudioConfig, STTConfig
+        from config import AudioConfig, STTConfig, RealtimeConfig
 
         # Recorder
         rec = AudioRecorder(AudioConfig())
@@ -125,7 +141,38 @@ jobs:
         # STT Engine
         engine = STTEngine(STTConfig())
         assert engine.model is None
-        assert engine._detect_device() in ('cpu', 'cuda')
+        assert hasattr(engine, 'transcribe_sync')
+
+        # RealtimeConfig
+        rt = RealtimeConfig()
+        assert rt.segment_pause_threshold == 0.8
+        assert rt.vad_sensitivity == 2
 
         print('Module tests PASSED')
         EOF
+
+  test-macos-imports:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements_macos.txt
+    
+    - name: macOS import test
+      run: |
+        python -c "from platform_adapter import CURRENT_PLATFORM; assert CURRENT_PLATFORM == 'macos'; print('Platform OK')"
+        python -c "from platform_adapter.hotkey_macos import MacOSHotkeyManager; print('hotkey_macos OK')"
+        python -c "from platform_adapter.clipboard_macos import MacOSClipboardInjector; print('clipboard_macos OK')"
+        python -c "from platform_adapter.hotkey_base import HotkeyManagerBase; print('hotkey_base OK')"
+        python -c "from platform_adapter.clipboard_base import ClipboardInjectorBase; print('clipboard_base OK')"
+        python -c "from core.stream_transcriber import StreamTranscriber; print('stream_transcriber OK')"

@@ -1,0 +1,2 @@
+# Windows 额外依赖
+keyboard>=0.13.5

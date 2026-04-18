@@ -20,6 +20,7 @@ _STATE_COLORS = {
     EngineState.IDLE: "#4CAF50",       # 绿色
     EngineState.RECORDING: "#F44336",   # 红色
     EngineState.PROCESSING: "#FF9800",  # 橙黄色
+    EngineState.STREAMING: "#2196F3",   # 蓝色（实时转写）
     EngineState.LOADING: "#9E9E9E",     # 灰色
     EngineState.ERROR: "#D32F2F",       # 深红色
 }
@@ -29,6 +30,7 @@ _STATE_LABELS = {
     EngineState.IDLE: "就绪",
     EngineState.RECORDING: "录音中",
     EngineState.PROCESSING: "识别中",
+    EngineState.STREAMING: "实时转写中",
     EngineState.LOADING: "加载中",
     EngineState.ERROR: "错误",
 }
@@ -85,12 +87,15 @@ class TrayIcon:
         on_settings: Callable,
         on_quit: Callable,
         on_retry: Optional[Callable] = None,
+        on_switch_mode: Optional[Callable] = None,
     ):
         self._on_start = on_start
         self._on_stop = on_stop
         self._on_settings = on_settings
         self._on_quit = on_quit
         self._on_retry = on_retry
+        self._on_switch_mode = on_switch_mode
+        self._current_mode = "batch"  # batch | realtime
 
         self._state: Optional[EngineState] = EngineState.LOADING
         self._icon = None  # pystray.Icon 实例
@@ -108,21 +113,27 @@ class TrayIcon:
         """根据当前状态构建右键菜单"""
         import pystray
 
-        is_recording = self._state == EngineState.RECORDING
+        is_recording = self._state in (EngineState.RECORDING, EngineState.STREAMING)
         is_error = self._state == EngineState.ERROR
         is_loading = self._state == EngineState.LOADING
 
         items = []
 
-        # 开始/停止录音
-        if is_recording:
-            items.append(
-                pystray.MenuItem("⏹ 停止录音", self._on_stop, default=False)
-            )
+        # 开始/停止
+        if self._state == EngineState.STREAMING:
+            items.append(pystray.MenuItem("⏹ 停止转写", self._on_stop, default=False))
+        elif self._state == EngineState.RECORDING:
+            items.append(pystray.MenuItem("⏹ 停止录音", self._on_stop, default=False))
         elif not is_loading and not is_error:
-            items.append(
-                pystray.MenuItem("🎤 开始录音", self._on_start, default=False)
-            )
+            if self._current_mode == "realtime":
+                items.append(pystray.MenuItem("📝 开始转写", self._on_start, default=False))
+            else:
+                items.append(pystray.MenuItem("🎤 开始录音", self._on_start, default=False))
+
+        # 模式切换
+        if not is_recording and not is_loading:
+            mode_label = "📝 切换到实时转写" if self._current_mode == "batch" else "🎤 切换到批量录音"
+            items.append(pystray.MenuItem(mode_label, self._on_switch_mode_clicked, default=False))
 
         items.append(pystray.Menu.SEPARATOR)
 
@@ -168,6 +179,12 @@ class TrayIcon:
         logger.info("用户点击：退出")
         self._on_quit()
 
+    def _on_switch_mode_clicked(self, icon, item):
+        """模式切换回调"""
+        logger.info("用户点击：切换模式")
+        if self._on_switch_mode:
+            self._on_switch_mode()
+
     def _on_double_click(self, icon, item):
         """双击托盘图标 → 打开设置"""
         logger.info("双击托盘图标，打开设置")
@@ -204,6 +221,17 @@ class TrayIcon:
             self._icon.notify(message, title)
         except Exception as e:
             logger.warning("托盘通知失败: %s", e)
+
+    def set_mode(self, mode: str):
+        """设置当前工作模式"""
+        self._current_mode = mode
+        logger.info("托盘模式切换: %s", mode)
+        if self._icon is not None:
+            try:
+                self._icon.menu = self._build_menu()
+                self._icon.update_menu()
+            except Exception:
+                pass
 
     def run(self):
         """启动托盘主循环（阻塞，在主线程调用）"""
