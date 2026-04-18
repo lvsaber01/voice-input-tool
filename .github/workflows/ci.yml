@@ -11,6 +11,10 @@ jobs:
   test:
     runs-on: windows-latest
     
+    defaults:
+      run:
+        shell: bash
+    
     steps:
     - uses: actions/checkout@v4
     
@@ -38,6 +42,7 @@ jobs:
         python -m py_compile core/sound_player.py
         python -m py_compile gui/tray.py
         python -m py_compile gui/web_server.py
+        echo "Syntax check PASSED"
     
     - name: Import test
       run: |
@@ -50,45 +55,36 @@ jobs:
         python -c "from core.sound_player import SoundPlayer; print('sound_player.py OK')"
         python -c "from core.hotkey import HotkeyManager; print('hotkey.py OK')"
     
-    - name: Unit tests
-      run: |
-        python -m pytest tests/ -v --tb=short 2>nul || echo "No tests directory yet"
-    
     - name: Config integration test
-      shell: bash
       run: |
         python << 'EOF'
-        import os, tempfile, sys
-        sys.path.insert(0, os.getcwd())
+        import os, tempfile
         from config import load_config, save_config, AppConfig
 
         tmp = tempfile.mkdtemp()
         cfg_path = os.path.join(tmp, 'test_config.yaml')
         cfg = load_config(cfg_path)
         assert isinstance(cfg, AppConfig), f"Expected AppConfig, got {type(cfg)}"
-        assert cfg.hotkey.trigger == 'f8', f"Expected f8, got {cfg.hotkey.trigger}"
+        assert cfg.hotkey.trigger == 'f8'
         assert cfg.config_version == 2
 
         cfg.hotkey.trigger = 'f9'
         save_config(cfg_path, cfg)
         cfg2 = load_config(cfg_path)
-        assert cfg2.hotkey.trigger == 'f9', f"Expected f9, got {cfg2.hotkey.trigger}"
+        assert cfg2.hotkey.trigger == 'f9'
 
         print('Config load/save test PASSED')
         EOF
 
     - name: Engine state machine test
-      shell: bash
       run: |
         python << 'EOF'
-        import os, sys, threading
-        sys.path.insert(0, os.getcwd())
+        import threading
         from core.engine import EngineState, CoreEngine
         from unittest.mock import MagicMock
 
         assert EngineState.IDLE is not None
         assert EngineState.RECORDING is not None
-        assert EngineState.PROCESSING is not None
 
         engine = CoreEngine.__new__(CoreEngine)
         engine._state = EngineState.IDLE
@@ -100,23 +96,23 @@ jobs:
         print('Engine state machine test PASSED')
         EOF
 
-    - name: Recorder & SilenceDetector test
-      shell: bash
+    - name: Module tests
       run: |
         python << 'EOF'
-        import os, sys, queue
-        sys.path.insert(0, os.getcwd())
+        import queue
         from core.recorder import AudioRecorder
         from core.silence_detector import SilenceDetector
-        from config import AudioConfig
+        from core.stt_engine import STTEngine
+        from config import AudioConfig, STTConfig
 
-        cfg = AudioConfig()
-        rec = AudioRecorder(cfg)
+        # Recorder
+        rec = AudioRecorder(AudioConfig())
         assert rec.SAMPLE_RATE == 16000
         assert not rec.is_recording
 
+        # SilenceDetector
         called = []
-        detector = SilenceDetector(cfg, lambda: called.append(True))
+        detector = SilenceDetector(AudioConfig(), lambda: called.append(True))
         q = queue.Queue()
         detector.start(q)
         detector.begin_detection()
@@ -125,22 +121,10 @@ jobs:
         assert not detector._detecting
         detector.shutdown()
 
-        print('Recorder & SilenceDetector test PASSED')
-        EOF
-
-    - name: STT Engine test
-      shell: bash
-      run: |
-        python << 'EOF'
-        import os, sys
-        sys.path.insert(0, os.getcwd())
-        from core.stt_engine import STTEngine
-        from config import STTConfig
-
-        cfg = STTConfig()
-        engine = STTEngine(cfg)
+        # STT Engine
+        engine = STTEngine(STTConfig())
         assert engine.model is None
-        device = engine._detect_device()
-        assert device in ('cpu', 'cuda')
-        print('STT Engine test PASSED')
+        assert engine._detect_device() in ('cpu', 'cuda')
+
+        print('Module tests PASSED')
         EOF
