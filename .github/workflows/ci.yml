@@ -92,7 +92,8 @@ jobs:
         engine._shutdown_event = threading.Event()
         engine._tray = MagicMock()
 
-        assert hasattr(CoreEngine, '_VALID_TRANSITIONS')
+        import core.engine as engine_mod
+        assert hasattr(engine_mod, '_VALID_TRANSITIONS')
         print('Engine state machine test PASSED')
         EOF
 
