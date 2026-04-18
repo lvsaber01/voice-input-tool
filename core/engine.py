@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 class EngineState(Enum):
     """引擎状态枚举"""
     IDLE = auto()           # 就绪，等待热键触发
-    RECORDING = auto()      # 录音中
-    PROCESSING = auto()     # STT 识别中
+    RECORDING = auto()      # 录音中（批量模式）
+    PROCESSING = auto()     # STT 识别中（批量模式）
+    STREAMING = auto()      # 实时转写监听中（实时模式）
     INJECTING = auto()      # 文字注入中
     ERROR = auto()          # 错误状态（可恢复）
     LOADING = auto()        # 模型加载中（启动阶段）
@@ -30,9 +31,10 @@ class EngineState(Enum):
 
 _VALID_TRANSITIONS: dict[EngineState, set[EngineState]] = {
     EngineState.LOADING: {EngineState.IDLE, EngineState.ERROR},
-    EngineState.IDLE: {EngineState.RECORDING, EngineState.LOADING},
+    EngineState.IDLE: {EngineState.RECORDING, EngineState.STREAMING, EngineState.LOADING},
     EngineState.RECORDING: {EngineState.PROCESSING},
     EngineState.PROCESSING: {EngineState.INJECTING, EngineState.IDLE},
+    EngineState.STREAMING: {EngineState.IDLE},
     EngineState.INJECTING: {EngineState.IDLE},
     EngineState.ERROR: {EngineState.LOADING, EngineState.IDLE},
 }
@@ -76,12 +78,17 @@ class CoreEngine:
         from core.stt_engine import STTEngine
         from core.injector import TextInjector
         from core.sound_player import SoundPlayer
+        from core.stream_transcriber import StreamTranscriber
 
         self._recorder = AudioRecorder(config.audio)
         self._silence_detector = SilenceDetector(config.audio, self._on_silence_timeout)
         self._stt_engine = STTEngine(config.stt)
         self._injector = TextInjector(config.inject)
         self._sound_player = SoundPlayer(config.sound)
+        self._stream_transcriber = StreamTranscriber(
+            config.realtime, self._stt_engine, self._on_realtime_segment
+        )
+        self._rt_audio_queue = None  # 实时模式专用音频队列
 
         # 启动静音检测消费者线程
         self._silence_detector.start(self._recorder.get_buffer_queue())
@@ -131,9 +138,14 @@ class CoreEngine:
             return
         current = self.state
         if current == EngineState.IDLE:
-            self._start_recording()
+            if self._config.mode == "realtime":
+                self._start_streaming()
+            else:
+                self._start_recording()
         elif current == EngineState.RECORDING:
             self._stop_recording_and_transcribe()
+        elif current == EngineState.STREAMING:
+            self._stop_streaming()
         # 其他状态忽略
 
     def on_tray_start_stop(self):
@@ -199,7 +211,73 @@ class CoreEngine:
         return True
 
     # ============================================================
-    # 内部方法（Phase 2 实现具体逻辑）
+    # 实时转写模式
+    # ============================================================
+
+    def _start_streaming(self):
+        """启动实时转写模式。
+
+        状态转移: IDLE → STREAMING
+        """
+        import queue as queue_mod
+        if self.transition(EngineState.STREAMING):
+            logger.info("开始实时转写")
+            try:
+                # 创建实时模式专用音频队列
+                self._rt_audio_queue = queue_mod.Queue(maxsize=300)  # ~30s 背压保护
+                self._recorder.start(self._rt_audio_queue)
+                self._stream_transcriber.start(self._rt_audio_queue)
+                self._sound_player.play("start")
+                if self._tray:
+                    self._tray.set_state(EngineState.STREAMING)
+            except Exception as e:
+                logger.error("启动实时转写失败: %s", e)
+                self.transition(EngineState.IDLE)
+                if self._tray:
+                    self._tray.set_state(EngineState.IDLE)
+
+    def _stop_streaming(self):
+        """停止实时转写模式。
+
+        状态转移: STREAMING → IDLE
+        """
+        if self.transition(EngineState.IDLE):
+            logger.info("停止实时转写")
+            try:
+                self._stream_transcriber.stop()
+                self._recorder.stop()
+                self._sound_player.play("end")
+                if self._tray:
+                    self._tray.set_state(EngineState.IDLE)
+            except Exception as e:
+                logger.error("停止实时转写失败: %s", e)
+
+    def _on_realtime_segment(self, text: str):
+        """实时转写段落回调（在注入线程中执行）。
+
+        每转写完一段文字就注入到光标位置。
+        """
+        if self._shutdown_event.is_set():
+            return
+
+        separator = self._config.realtime.segment_separator
+        timestamp_prefix = ""
+        if self._config.realtime.auto_timestamp:
+            import datetime
+            timestamp_prefix = datetime.datetime.now().strftime(
+                "[%H:%M:%S] "
+            )
+
+        full_text = timestamp_prefix + text + separator
+        logger.info("实时段落: %s", text[:50])
+
+        try:
+            self._injector.inject(full_text)
+        except Exception as e:
+            logger.error("实时段落注入失败: %s", e)
+
+    # ============================================================
+    # 内部方法（批量模式）
     # ============================================================
 
     def _start_recording(self):
@@ -383,6 +461,11 @@ class CoreEngine:
             self._cancel_watchdog()
 
         # 停止子模块
+        if hasattr(self, '_stream_transcriber') and self.state == EngineState.STREAMING:
+            try:
+                self._stream_transcriber.stop()
+            except Exception as e:
+                logger.warning("停止实时转写失败: %s", e)
         if self._recorder and self._recorder.is_recording:
             try:
                 self._recorder.stop()

@@ -116,9 +116,38 @@ class StartupConfig:
 
 
 @dataclass
+class RealtimeConfig:
+    """实时转写模式配置"""
+    # 语音段分割
+    segment_pause_threshold: float = 0.8   # 静音多久视为句子边界（秒）
+    min_segment_duration: float = 0.3     # 最短语音段（秒），低于此跳过
+    max_segment_duration: float = 30.0    # 最长语音段（秒），超长强制切分
+
+    # VAD 参数
+    vad_sensitivity: int = 2               # webrtcvad 灵敏度（0-3，越高越严格）
+    vad_window_ms: int = 30                # VAD 窗口（毫秒，webrtcvad 要求 10/20/30）
+
+    # 输出格式
+    inject_method: str = "clipboard"       # clipboard | clipboard_no_restore | direct_type
+    segment_separator: str = "\n"           # 段落分隔符
+    auto_timestamp: bool = False           # 是否在每段前加时间戳
+
+    def __post_init__(self):
+        if not 0 <= self.vad_sensitivity <= 3:
+            raise ValueError(f"realtime.vad_sensitivity 须在 [0, 3]，当前: {self.vad_sensitivity}")
+        if self.segment_pause_threshold <= 0:
+            raise ValueError("realtime.segment_pause_threshold 必须 > 0")
+        if self.min_segment_duration < 0:
+            raise ValueError("realtime.min_segment_duration 必须 >= 0")
+        if self.max_segment_duration <= self.min_segment_duration:
+            raise ValueError("realtime.max_segment_duration 必须 > min_segment_duration")
+
+
+@dataclass
 class AppConfig:
     """应用总配置"""
     config_version: int = 2
+    mode: str = "batch"                    # batch | realtime
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -126,6 +155,7 @@ class AppConfig:
     sound: SoundConfig = field(default_factory=SoundConfig)
     web: WebConfig = field(default_factory=WebConfig)
     startup: StartupConfig = field(default_factory=StartupConfig)
+    realtime: RealtimeConfig = field(default_factory=RealtimeConfig)
 
 
 # ============================================================
@@ -140,6 +170,7 @@ _SUB_CONFIG_TYPES: Dict[str, type] = {
     "sound": SoundConfig,
     "web": WebConfig,
     "startup": StartupConfig,
+    "realtime": RealtimeConfig,
 }
 
 

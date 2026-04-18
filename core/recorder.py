@@ -29,12 +29,18 @@ class AudioRecorder:
         self.is_recording = False
         self._buffer: deque = deque()
         self._buffer_queue: queue.Queue = queue.Queue()
+        self._rt_queue = None  # 实时模式专用队列（可选）
         self._stream = None
 
-    def start(self):
-        """开始录音"""
+    def start(self, rt_queue=None):
+        """开始录音
+
+        Args:
+            rt_queue: 实时模式专用队列（可选）。如提供，音频 chunk 也会 put 到此队列。
+        """
         import sounddevice as sd
 
+        self._rt_queue = rt_queue
         self._buffer.clear()
         # 清空缓冲队列（丢弃旧数据）
         while not self._buffer_queue.empty():
@@ -76,6 +82,12 @@ class AudioRecorder:
         chunk = indata.copy()
         self._buffer.append(chunk)
         self._buffer_queue.put(chunk)
+        # 实时模式：非阻塞放入专用队列
+        if self._rt_queue is not None:
+            try:
+                self._rt_queue.put_nowait(chunk)
+            except queue.Full:
+                pass  # 丢弃（背压保护）
 
     def get_buffer_queue(self) -> queue.Queue:
         """返回缓冲队列，供静音检测线程消费"""

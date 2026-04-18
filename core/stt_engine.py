@@ -117,6 +117,20 @@ class STTEngine:
             return "float16"
         return self.config.compute_type
 
+    def transcribe_sync(self, audio) -> str:
+        """同步转写（阻塞式），保证顺序输出。
+
+        用于实时转写模式，区别于 transcribe_async 的线程池异步模式。
+
+        Args:
+            audio: numpy 音频数组
+
+        Returns:
+            识别文本（空字符串表示无结果）
+        """
+        text, _ = self._do_transcribe(audio)
+        return text
+
     def shutdown(self):
         """关闭线程池"""
         self._executor.shutdown(wait=True)
