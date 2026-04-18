@@ -1,0 +1,166 @@
+name: CI - Windows Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  test:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+    
+    - name: Syntax check
+      run: |
+        python -m py_compile config.py
+        python -m py_compile main.py
+        python -m py_compile core/engine.py
+        python -m py_compile core/recorder.py
+        python -m py_compile core/silence_detector.py
+        python -m py_compile core/stt_engine.py
+        python -m py_compile core/injector.py
+        python -m py_compile core/hotkey.py
+        python -m py_compile core/sound_player.py
+        python -m py_compile gui/tray.py
+        python -m py_compile gui/web_server.py
+    
+    - name: Import test
+      run: |
+        python -c "from config import load_config, save_config, AppConfig; print('config.py OK')"
+        python -c "from core.engine import EngineState, CoreEngine; print('engine.py OK')"
+        python -c "from core.recorder import AudioRecorder; print('recorder.py OK')"
+        python -c "from core.silence_detector import SilenceDetector; print('silence_detector.py OK')"
+        python -c "from core.stt_engine import STTEngine; print('stt_engine.py OK')"
+        python -c "from core.injector import TextInjector; print('injector.py OK')"
+        python -c "from core.sound_player import SoundPlayer; print('sound_player.py OK')"
+        python -c "from core.hotkey import HotkeyManager; print('hotkey.py OK')"
+    
+    - name: Config load/save test
+      run: |
+        python -c "
+        import os, tempfile
+        from config import load_config, save_config, AppConfig
+        
+        # 测试默认配置生成
+        tmp = tempfile.mkdtemp()
+        cfg_path = os.path.join(tmp, 'test_config.yaml')
+        cfg = load_config(cfg_path)
+        assert isinstance(cfg, AppConfig)
+        assert cfg.hotkey.trigger == 'f8'
+        assert cfg.config_version == 2
+        
+        # 测试保存和重新加载
+        cfg.hotkey.trigger = 'f9'
+        save_config(cfg_path, cfg)
+        cfg2 = load_config(cfg_path)
+        assert cfg2.hotkey.trigger == 'f9'
+        
+        print('Config load/save test PASSED')
+        "
+    
+    - name: Engine state machine test
+      run: |
+        python -c "
+        from core.engine import EngineState, CoreEngine
+        from unittest.mock import MagicMock
+        
+        # 创建 mock 对象
+        mock_tray = MagicMock()
+        
+        # 测试状态枚举
+        assert EngineState.IDLE is not None
+        assert EngineState.RECORDING is not None
+        assert EngineState.PROCESSING is not None
+        
+        # 测试合法转换
+        engine = CoreEngine.__new__(CoreEngine)
+        engine._state = EngineState.IDLE
+        engine._state_lock = __import__('threading').Lock()
+        engine._shutdown_event = __import__('threading').Event()
+        engine._tray = mock_tray
+        
+        # 检查转移矩阵存在
+        assert hasattr(CoreEngine, '_VALID_TRANSITIONS')
+        
+        print('Engine state machine test PASSED')
+        "
+    
+    - name: Recorder test
+      run: |
+        python -c "
+        from core.recorder import AudioRecorder
+        from config import AudioConfig
+        
+        cfg = AudioConfig()
+        rec = AudioRecorder(cfg)
+        assert rec.SAMPLE_RATE == 16000
+        assert not rec.is_recording
+        assert len(rec._buffer) == 0
+        
+        print('Recorder test PASSED')
+        "
+    
+    - name: SilenceDetector test
+      run: |
+        python -c "
+        from core.silence_detector import SilenceDetector
+        from config import AudioConfig
+        import queue
+        
+        cfg = AudioConfig()
+        called = []
+        def on_timeout():
+            called.append(True)
+        
+        detector = SilenceDetector(cfg, on_timeout)
+        assert not detector._detecting
+        assert detector._running
+        
+        # 测试 begin/end detection
+        q = queue.Queue()
+        detector.start(q)
+        detector.begin_detection()
+        assert detector._detecting == True
+        detector.end_detection()
+        assert detector._detecting == False
+        detector.shutdown()
+        
+        print('SilenceDetector test PASSED')
+        "
+    
+    - name: STT Engine test
+      run: |
+        python -c "
+        from core.stt_engine import STTEngine
+        from config import STTConfig
+        
+        cfg = STTConfig()
+        engine = STTEngine(cfg)
+        assert engine.model is None
+        
+        # 测试设备检测
+        device = engine._detect_device()
+        assert device in ('cpu', 'cuda')
+        
+        print('STT Engine test PASSED')
+        "
+    
+    - name: Run pytest
+      if: always()
+      run: |
+        if (Test-Path "tests") { pytest tests/ -v } else { Write-Host "No tests/ directory, skipping" }

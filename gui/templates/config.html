@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语音输入工具 - 设置</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+.container { max-width: 720px; margin: 0 auto; padding: 20px; }
+h1 { text-align: center; margin-bottom: 24px; font-size: 24px; color: #1a1a1a; }
+
+/* 标签页 */
+.tabs { display: flex; gap: 4px; background: #fff; border-radius: 8px; padding: 4px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.tab { flex: 1; text-align: center; padding: 10px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #666; transition: all 0.2s; border: none; background: none; }
+.tab:hover { background: #f0f0f0; }
+.tab.active { background: #4CAF50; color: #fff; font-weight: 500; }
+
+/* 面板 */
+.panel { display: none; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.panel.active { display: block; }
+
+/* 表单 */
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 14px; color: #444; }
+.form-group .hint { font-size: 12px; color: #999; margin-top: 4px; }
+.form-group .warn { color: #FF9800; }
+
+input[type="text"], input[type="number"], select {
+  width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;
+  transition: border-color 0.2s;
+}
+input[type="text"]:focus, input[type="number"]:focus, select:focus {
+  outline: none; border-color: #4CAF50;
+}
+
+/* 开关 */
+.switch-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+.switch-row label { margin-bottom: 0; }
+.switch { position: relative; width: 48px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: #ccc; border-radius: 13px; cursor: pointer; transition: 0.2s; }
+.switch .slider::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+.switch input:checked + .slider { background: #4CAF50; }
+.switch input:checked + .slider::before { transform: translateX(22px); }
+
+/* 滑块 */
+input[type="range"] { width: 100%; accent-color: #4CAF50; }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { flex: 1; }
+.range-row .range-val { min-width: 40px; text-align: right; font-size: 14px; font-weight: 500; }
+
+/* 按钮 */
+.btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: 0.2s; }
+.btn-primary { background: #4CAF50; color: #fff; }
+.btn-primary:hover { background: #43A047; }
+.btn-secondary { background: #e0e0e0; color: #333; }
+.btn-secondary:hover { background: #d0d0d0; }
+.btn-test { background: #2196F3; color: #fff; padding: 6px 14px; font-size: 13px; }
+.btn-test:hover { background: #1E88E5; }
+.btn-row { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+
+/* 状态栏 */
+.status-bar { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 6px; font-size: 13px; color: #666; }
+.status-bar .state { font-weight: 600; color: #4CAF50; }
+
+/* Toast */
+.toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: #fff; font-size: 14px; z-index: 999; opacity: 0; transition: opacity 0.3s; }
+.toast.show { opacity: 1; }
+.toast.success { background: #4CAF50; }
+.toast.error { background: #F44336; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎙️ 语音输入工具 - 设置</h1>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="hotkey">快捷键</button>
+    <button class="tab" data-tab="stt">STT</button>
+    <button class="tab" data-tab="audio">音频</button>
+    <button class="tab" data-tab="sound">提示音</button>
+    <button class="tab" data-tab="inject">注入</button>
+  </div>
+
+  <!-- 快捷键 -->
+  <div id="tab-hotkey" class="panel active">
+    <div class="form-group">
+      <label>触发键</label>
+      <input type="text" id="hotkey-trigger" placeholder="按下任意键..." readonly>
+      <div class="hint">点击输入框后按下想要设置的快捷键</div>
+    </div>
+    <div class="form-group">
+      <label>模式</label>
+      <select id="hotkey-mode">
+        <option value="toggle">Toggle（开关切换）</option>
+        <option value="push_to_talk">PTT（按住说话）</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <button class="btn btn-test" onclick="testHotkey()">检测冲突</button>
+    </div>
+    <div class="hint">快捷键变更即时生效</div>
+  </div>
+
+  <!-- STT -->
+  <div id="tab-stt" class="panel">
+    <div class="form-group">
+      <label>模型 ⚠️</label>
+      <select id="stt-model-size">
+        <option value="tiny">tiny（最快，精度低）</option>
+        <option value="base">base（快，精度一般）</option>
+        <option value="small" selected>small（推荐）</option>
+        <option value="medium">medium（慢，精度高）</option>
+        <option value="large-v3">large-v3（最慢，精度最高）</option>
+      </select>
+      <div class="hint warn">⚠️ 更改此项需要重启程序</div>
+    </div>
+    <div class="form-group">
+      <label>语言</label>
+      <select id="stt-language">
+        <option value="">自动检测</option>
+        <option value="zh">中文</option>
+        <option value="en">英文</option>
+        <option value="ja">日文</option>
+        <option value="ko">韩文</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>计算设备 ⚠️</label>
+      <select id="stt-device">
+        <option value="auto">自动</option>
+        <option value="cpu">CPU</option>
+        <option value="cuda">CUDA GPU</option>
+      </select>
+      <div class="hint warn">⚠️ 更改此项需要重启程序</div>
+    </div>
+  </div>
+
+  <!-- 音频 -->
+  <div id="tab-audio" class="panel">
+    <div class="form-group">
+      <label>静音超时（秒）</label>
+      <div class="range-row">
+        <input type="range" id="audio-silence-timeout" min="0" max="30" step="1" value="8">
+        <span class="range-val" id="audio-silence-timeout-val">8</span>
+      </div>
+      <div class="hint">0 = 关闭静音检测</div>
+    </div>
+    <div class="form-group">
+      <label>最大录音时长（秒）</label>
+      <input type="number" id="audio-max-duration" min="1" max="600" value="120">
+    </div>
+    <div class="form-group">
+      <label>静音阈值</label>
+      <div class="range-row">
+        <input type="range" id="audio-silence-threshold" min="0.001" max="0.1" step="0.001" value="0.01">
+        <span class="range-val" id="audio-silence-threshold-val">0.01</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提示音 -->
+  <div id="tab-sound" class="panel">
+    <div class="switch-row">
+      <label>启用提示音</label>
+      <label class="switch"><input type="checkbox" id="sound-enabled" checked><span class="slider"></span></label>
+    </div>
+    <div class="form-group">
+      <label>音量</label>
+      <div class="range-row">
+        <input type="range" id="sound-volume" min="0" max="1" step="0.05" value="0.5">
+        <span class="range-val" id="sound-volume-val">50%</span>
+      </div>
+    </div>
+    <div class="switch-row">
+      <label>开始录音提示音</label>
+      <label class="switch"><input type="checkbox" id="sound-start" checked><span class="slider"></span></label>
+    </div>
+    <div class="switch-row">
+      <label>结束录音提示音</label>
+      <label class="switch"><input type="checkbox" id="sound-end" checked><span class="slider"></span></label>
+    </div>
+    <div class="switch-row">
+      <label>识别完成提示音</label>
+      <label class="switch"><input type="checkbox" id="sound-complete" checked><span class="slider"></span></label>
+    </div>
+    <div class="form-group" style="margin-top:16px">
+      <button class="btn btn-test" onclick="testSound()">试听</button>
+    </div>
+  </div>
+
+  <!-- 注入 -->
+  <div id="tab-inject" class="panel">
+    <div class="switch-row">
+      <label>自动粘贴</label>
+      <label class="switch"><input type="checkbox" id="inject-auto-paste" checked><span class="slider"></span></label>
+    </div>
+    <div class="switch-row">
+      <label>备份剪贴板</label>
+      <label class="switch"><input type="checkbox" id="inject-clipboard-backup" checked><span class="slider"></span></label>
+    </div>
+    <div class="switch-row">
+      <label>恢复原剪贴板内容</label>
+      <label class="switch"><input type="checkbox" id="inject-clipboard-restore" checked><span class="slider"></span></label>
+    </div>
+    <div class="switch-row">
+      <label>末尾添加空格</label>
+      <label class="switch"><input type="checkbox" id="inject-trailing-space"><span class="slider"></span></label>
+    </div>
+    <div class="form-group" style="margin-top:16px">
+      <label>粘贴延迟（毫秒）</label>
+      <input type="number" id="inject-paste-delay" min="0" max="1000" step="10" value="100">
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-secondary" onclick="resetConfig()">重置默认</button>
+    <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+  </div>
+
+  <div class="status-bar">
+    引擎状态: <span class="state" id="engine-state">--</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// 获取 URL 中的 token
+const params = new URLSearchParams(window.location.search);
+const TOKEN = params.get('token') || '';
+const BASE = window.location.origin;
+
+// ============ 标签页切换 ============
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ============ 滑块实时值 ============
+document.getElementById('audio-silence-timeout').addEventListener('input', e => {
+  document.getElementById('audio-silence-timeout-val').textContent = e.target.value;
+});
+document.getElementById('audio-silence-threshold').addEventListener('input', e => {
+  document.getElementById('audio-silence-threshold-val').textContent = e.target.value;
+});
+document.getElementById('sound-volume').addEventListener('input', e => {
+  document.getElementById('sound-volume-val').textContent = Math.round(e.target.value * 100) + '%';
+});
+
+// ============ 快捷键捕获 ============
+const triggerInput = document.getElementById('hotkey-trigger');
+triggerInput.addEventListener('keydown', e => {
+  e.preventDefault();
+  let key = '';
+  const parts = [];
+  if (e.ctrlKey) parts.push('ctrl');
+  if (e.altKey) parts.push('alt');
+  if (e.shiftKey) parts.push('shift');
+  if (e.metaKey) parts.push('cmd');
+
+  if (e.key === ' ') key = 'space';
+  else if (e.key.startsWith('F') && e.key.length <= 3) key = e.key.toLowerCase();
+  else if (e.key.length === 1) key = e.key;
+  else key = e.key.toLowerCase();
+
+  if (!['control','alt','shift','meta'].includes(key)) {
+    parts.push(key);
+    triggerInput.value = parts.join('+');
+  }
+});
+
+// ============ API 调用 ============
+function tokenUrl(path) { return BASE + path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN; }
+
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 2500);
+}
+
+function loadConfig() {
+  fetch(BASE + '/api/config').then(r => r.json()).then(data => {
+    // Hotkey
+    triggerInput.value = data.hotkey?.trigger || 'f8';
+    document.getElementById('hotkey-mode').value = data.hotkey?.mode || 'toggle';
+    // STT
+    document.getElementById('stt-model-size').value = data.stt?.model_size || 'small';
+    document.getElementById('stt-language').value = data.stt?.language || '';
+    document.getElementById('stt-device').value = data.stt?.device || 'auto';
+    // Audio
+    const st = data.audio?.silence_timeout ?? 8;
+    document.getElementById('audio-silence-timeout').value = st;
+    document.getElementById('audio-silence-timeout-val').textContent = st;
+    document.getElementById('audio-max-duration').value = data.audio?.max_duration || 120;
+    const thr = data.audio?.silence_threshold ?? 0.01;
+    document.getElementById('audio-silence-threshold').value = thr;
+    document.getElementById('audio-silence-threshold-val').textContent = thr;
+    // Sound
+    document.getElementById('sound-enabled').checked = data.sound?.enabled ?? true;
+    const vol = data.sound?.volume ?? 0.5;
+    document.getElementById('sound-volume').value = vol;
+    document.getElementById('sound-volume-val').textContent = Math.round(vol*100)+'%';
+    document.getElementById('sound-start').checked = data.sound?.start_sound ?? true;
+    document.getElementById('sound-end').checked = data.sound?.end_sound ?? true;
+    document.getElementById('sound-complete').checked = data.sound?.complete_sound ?? true;
+    // Inject
+    document.getElementById('inject-auto-paste').checked = data.inject?.auto_paste ?? true;
+    document.getElementById('inject-clipboard-backup').checked = data.inject?.clipboard_backup ?? true;
+    document.getElementById('inject-clipboard-restore').checked = data.inject?.clipboard_restore ?? true;
+    document.getElementById('inject-trailing-space').checked = data.inject?.add_trailing_space ?? false;
+    document.getElementById('inject-paste-delay').value = data.inject?.paste_delay_ms ?? 100;
+  }).catch(e => showToast('加载配置失败: ' + e, 'error'));
+}
+
+function gatherConfig() {
+  return {
+    hotkey: {
+      trigger: triggerInput.value || 'f8',
+      mode: document.getElementById('hotkey-mode').value,
+    },
+    stt: {
+      model_size: document.getElementById('stt-model-size').value,
+      language: document.getElementById('stt-language').value || null,
+      device: document.getElementById('stt-device').value,
+    },
+    audio: {
+      silence_timeout: parseInt(document.getElementById('audio-silence-timeout').value),
+      max_duration: parseInt(document.getElementById('audio-max-duration').value),
+      silence_threshold: parseFloat(document.getElementById('audio-silence-threshold').value),
+    },
+    sound: {
+      enabled: document.getElementById('sound-enabled').checked,
+      volume: parseFloat(document.getElementById('sound-volume').value),
+      start_sound: document.getElementById('sound-start').checked,
+      end_sound: document.getElementById('sound-end').checked,
+      complete_sound: document.getElementById('sound-complete').checked,
+    },
+    inject: {
+      auto_paste: document.getElementById('inject-auto-paste').checked,
+      clipboard_backup: document.getElementById('inject-clipboard-backup').checked,
+      clipboard_restore: document.getElementById('inject-clipboard-restore').checked,
+      add_trailing_space: document.getElementById('inject-trailing-space').checked,
+      paste_delay_ms: parseInt(document.getElementById('inject-paste-delay').value),
+    },
+  };
+}
+
+function saveConfig() {
+  const cfg = gatherConfig();
+  fetch(tokenUrl('/api/config'), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(cfg),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) showToast('配置已保存');
+    else showToast(data.error || '保存失败', 'error');
+  }).catch(e => showToast('保存失败: ' + e, 'error'));
+}
+
+function resetConfig() {
+  if (!confirm('确定要重置所有设置为默认值吗？')) return;
+  // 用空对象触发服务端默认值
+  fetch(tokenUrl('/api/config'), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({}),
+  }).then(() => loadConfig()).then(() => showToast('已重置')).catch(e => showToast('重置失败', 'error'));
+}
+
+function testHotkey() {
+  const key = triggerInput.value;
+  if (!key) { showToast('请先设置快捷键', 'error'); return; }
+  fetch(tokenUrl('/api/hotkey/test'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({key}),
+  }).then(r => r.json()).then(data => {
+    showToast(data.message, data.ok ? 'success' : 'error');
+  }).catch(e => showToast('测试失败', 'error'));
+}
+
+function testSound() {
+  fetch(tokenUrl('/api/sound/test'), {method: 'POST'})
+    .then(r => r.json()).then(data => {
+      showToast(data.ok ? '提示音已播放' : data.error, data.ok ? 'success' : 'error');
+    }).catch(e => showToast('播放失败', 'error'));
+}
+
+function loadStatus() {
+  fetch(BASE + '/api/status').then(r => r.json()).then(data => {
+    document.getElementById('engine-state').textContent = data.engine_state || '--';
+  }).catch(() => {});
+}
+
+// ============ 初始化 ============
+loadConfig();
+loadStatus();
+setInterval(loadStatus, 5000);
+</script>
+</body>
+</html>
