@@ -51,11 +51,11 @@ jobs:
         python -c "from core.hotkey import HotkeyManager; print('hotkey.py OK')"
     
     - name: Config load/save test
+      shell: python
       run: |
-        python -c "
         import os, tempfile
         from config import load_config, save_config, AppConfig
-        
+
         # 测试默认配置生成
         tmp = tempfile.mkdtemp()
         cfg_path = os.path.join(tmp, 'test_config.yaml')
@@ -63,75 +63,68 @@ jobs:
         assert isinstance(cfg, AppConfig)
         assert cfg.hotkey.trigger == 'f8'
         assert cfg.config_version == 2
-        
+
         # 测试保存和重新加载
         cfg.hotkey.trigger = 'f9'
         save_config(cfg_path, cfg)
         cfg2 = load_config(cfg_path)
         assert cfg2.hotkey.trigger == 'f9'
-        
+
         print('Config load/save test PASSED')
-        "
-    
+
     - name: Engine state machine test
+      shell: python
       run: |
-        python -c "
         from core.engine import EngineState, CoreEngine
         from unittest.mock import MagicMock
-        
-        # 创建 mock 对象
+        import threading
+
         mock_tray = MagicMock()
-        
-        # 测试状态枚举
+
         assert EngineState.IDLE is not None
         assert EngineState.RECORDING is not None
         assert EngineState.PROCESSING is not None
-        
-        # 测试合法转换
+
         engine = CoreEngine.__new__(CoreEngine)
         engine._state = EngineState.IDLE
-        engine._state_lock = __import__('threading').Lock()
-        engine._shutdown_event = __import__('threading').Event()
+        engine._state_lock = threading.Lock()
+        engine._shutdown_event = threading.Event()
         engine._tray = mock_tray
-        
-        # 检查转移矩阵存在
+
         assert hasattr(CoreEngine, '_VALID_TRANSITIONS')
-        
+
         print('Engine state machine test PASSED')
-        "
-    
+
     - name: Recorder test
+      shell: python
       run: |
-        python -c "
         from core.recorder import AudioRecorder
         from config import AudioConfig
-        
+
         cfg = AudioConfig()
         rec = AudioRecorder(cfg)
         assert rec.SAMPLE_RATE == 16000
         assert not rec.is_recording
         assert len(rec._buffer) == 0
-        
+
         print('Recorder test PASSED')
-        "
-    
+
     - name: SilenceDetector test
+      shell: python
       run: |
-        python -c "
         from core.silence_detector import SilenceDetector
         from config import AudioConfig
         import queue
-        
+
         cfg = AudioConfig()
         called = []
         def on_timeout():
             called.append(True)
-        
+
         detector = SilenceDetector(cfg, on_timeout)
         assert not detector._detecting
         assert detector._running
-        
-        # 测试 begin/end detection
+
         q = queue.Queue()
         detector.start(q)
         detector.begin_detection()
@@ -139,26 +132,23 @@ jobs:
         detector.end_detection()
         assert detector._detecting == False
         detector.shutdown()
-        
+
         print('SilenceDetector test PASSED')
-        "
-    
+
     - name: STT Engine test
+      shell: python
       run: |
-        python -c "
         from core.stt_engine import STTEngine
         from config import STTConfig
-        
+
         cfg = STTConfig()
         engine = STTEngine(cfg)
         assert engine.model is None
-        
-        # 测试设备检测
+
         device = engine._detect_device()
         assert device in ('cpu', 'cuda')
-        
+
         print('STT Engine test PASSED')
-        "
     
     - name: Run pytest
       if: always()
