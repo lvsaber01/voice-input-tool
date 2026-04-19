@@ -21,6 +21,7 @@ _STATE_COLORS = {
     EngineState.RECORDING: "#F44336",   # 红色
     EngineState.PROCESSING: "#FF9800",  # 橙黄色
     EngineState.STREAMING: "#2196F3",   # 蓝色（实时转写）
+    EngineState.INJECTING: "#9C27B0",   # 紫色（注入中）
     EngineState.LOADING: "#9E9E9E",     # 灰色
     EngineState.ERROR: "#D32F2F",       # 深红色
 }
@@ -31,6 +32,7 @@ _STATE_LABELS = {
     EngineState.RECORDING: "录音中",
     EngineState.PROCESSING: "识别中",
     EngineState.STREAMING: "实时转写中",
+    EngineState.INJECTING: "注入中",
     EngineState.LOADING: "加载中",
     EngineState.ERROR: "错误",
 }

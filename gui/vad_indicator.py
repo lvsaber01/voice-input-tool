@@ -54,8 +54,13 @@ def create_vad_indicator() -> VADIndicator:
             from gui.vad_indicator_win32 import Win32VADWindow
             return Win32VADWindow()
         except Exception as e:
-            logger.warning("Win32 VAD 指示器创建失败，降级为空实现: %s", e)
-            return DummyVADIndicator()
-    else:
-        logger.info("非 Windows 平台，VAD 指示器使用空实现")
+            logger.warning("Win32 VAD 指示器创建失败，降级为 tkinter: %s", e)
+            # fall through to tkinter fallback
+
+    # macOS / Linux / Win32 fallback → tkinter
+    try:
+        from gui.vad_indicator_tk import TkVADIndicator
+        return TkVADIndicator()
+    except Exception as e:
+        logger.warning("tkinter VAD 指示器不可用，降级为空实现: %s", e)
         return DummyVADIndicator()
