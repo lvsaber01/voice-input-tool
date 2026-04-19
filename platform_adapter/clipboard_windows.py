@@ -24,13 +24,22 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
     """
 
     def write_clipboard(self, text: str) -> bool:
-        """使用 Win32 API 写入剪贴板"""
+        """使用 Win32 API 写入剪贴板（带重试）"""
         try:
             kernel32 = ctypes.windll.kernel32
             user32 = ctypes.windll.user32
 
-            if not user32.OpenClipboard(0):
-                logger.error("OpenClipboard 失败: %d", ctypes.GetLastError())
+            # OpenClipboard 可能被其他程序占用，重试 3 次
+            opened = False
+            for attempt in range(3):
+                if user32.OpenClipboard(0):
+                    opened = True
+                    break
+                logger.debug("OpenClipboard 重试 %d/3", attempt + 1)
+                time.sleep(0.05)
+
+            if not opened:
+                logger.error("OpenClipboard 失败（重试3次）")
                 return False
 
             try:
@@ -44,7 +53,10 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
                     return False
                 ctypes.memmove(p, text.encode("utf-16-le"), len(text) * 2)
                 kernel32.GlobalUnlock(h)
-                user32.SetClipboardData(CF_UNICODETEXT, h)
+                result = user32.SetClipboardData(CF_UNICODETEXT, h)
+                if not result:
+                    logger.error("SetClipboardData 失败")
+                    return False
                 return True
             finally:
                 user32.CloseClipboard()
