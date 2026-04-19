@@ -105,6 +105,14 @@ class STTEngine:
             text = " ".join(seg.text for seg in segments).strip()
             duration_ms = int((time.monotonic() - t0) * 1000)
             language = getattr(info, 'language', None)
+            # 繁体转简体（faster-whisper 多语言模型倾向输出繁体中文）
+            if language == 'zh' and text:
+                try:
+                    from opencc import OpenCC
+                    cc = OpenCC('t2s')  # traditional to simplified
+                    text = cc.convert(text)
+                except ImportError:
+                    pass
             return (text if text else "", language, duration_ms, None)
         except Exception as e:
             return ("", None, 0, e)
