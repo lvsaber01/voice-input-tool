@@ -313,6 +313,18 @@ class CoreEngine:
     def _on_stt_complete(self, text: str, language: Optional[str],
                          duration_ms: int, error: Optional[Exception]):
         """STT 完成回调（在线程池工作线程中执行）。"""
+        try:
+            self._on_stt_complete_inner(text, language, duration_ms, error)
+        except Exception as e:
+            logger.error("STT 回调异常: %s", e, exc_info=True)
+            try:
+                self.transition(EngineState.IDLE)
+            except Exception:
+                pass
+
+    def _on_stt_complete_inner(self, text: str, language: Optional[str],
+                         duration_ms: int, error: Optional[Exception]):
+        """STT 完成回调内部逻辑。"""
         if self._shutdown_event.is_set():
             return
 

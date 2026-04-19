@@ -47,17 +47,11 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
         return self._read_clipboard_win32()
 
     def simulate_paste(self) -> bool:
-        """模拟 Ctrl+V（使用 keyboard 库，比 SendInput ctypes 更可靠）"""
-        try:
-            import keyboard
-            keyboard.send('ctrl+v')
-            return True
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.warning("keyboard.send 失败: %s，降级 SendInput", e)
-
-        # 降级: SendInput
+        """模拟 Ctrl+V
+        
+        keyboard.send() 需要 Windows 消息循环，在非主线程可能崩溃。
+        使用 ctypes windll 调用 SendInput，线程安全。
+        """
         return self._simulate_paste_sendinput()
 
     # ------------------------------------------------------------------
