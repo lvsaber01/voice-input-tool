@@ -292,16 +292,16 @@ class MacOSHotkeyManager(HotkeyManagerBase):
 
         return result
 
-    def _normalize_key(self, key) -> str:
-        """规范化按键为可比较的标识"""
+    def _normalize_key(self, key):
+        """规范化按键为 pynput 对象，与 _parse_hotkey 返回类型一致"""
         try:
             import pynput.keyboard as pynput_keyboard
             if isinstance(key, pynput_keyboard.Key):
                 return key
             elif hasattr(key, 'char') and key.char:
-                return key.char.lower()
+                return pynput_keyboard.KeyCode.from_char(key.char.lower())
             elif hasattr(key, 'vk') and key.vk:
-                return f"vk_{key.vk}"
+                return pynput_keyboard.KeyCode.from_vk(key.vk)
         except Exception:
             pass
         return str(key)

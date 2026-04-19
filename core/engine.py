@@ -284,7 +284,6 @@ class CoreEngine:
             self._silence_detector.end_detection()
             self._sound_player.play("end")
             self._events.publish(EngineEvent.RECORDING_STOPPED)
-            self._events.publish(EngineEvent.MAX_DURATION_TRIGGERED)
             self._stt_engine.transcribe_async(audio, self._on_stt_complete)
         except Exception as e:
             logger.error("停止录音失败: %s", e)
@@ -294,7 +293,14 @@ class CoreEngine:
     def _on_max_duration_timeout(self):
         """Timer 线程中执行，到达最大录音时长时自动提交。"""
         logger.info("达到最大录音时长，自动提交")
+        # _stop_recording_and_transcribe 内部先 transition，成功才继续
+        # 但我们需要在确认是最大时长触发时发布事件
+        # 先发事件再停录音（因为 transition 成功后才知道是不是这个 timer 触发的）
+        was_recording = self.state == EngineState.RECORDING
         self._stop_recording_and_transcribe()
+        if was_recording:
+            # 如果之前是 RECORDING 且 transition 成功了，说明是本 timer 触发的
+            self._events.publish(EngineEvent.MAX_DURATION_TRIGGERED)
 
     def _on_silence_timeout(self):
         logger.info("静音超时，停止录音")
@@ -319,7 +325,8 @@ class CoreEngine:
         if not text:
             logger.info("STT 返回空文本，未检测到有效语音")
             self.transition(EngineState.IDLE)
-            self._events.publish(EngineEvent.TRANSCRIBE_ERROR, RuntimeError("未检测到有效语音"))
+            # 空文本不是错误，用 TRANSCRIBE_COMPLETE 标记空结果
+            self._events.publish(EngineEvent.TRANSCRIBE_COMPLETE, "", language, duration_ms)
             return
 
         # 有识别结果，发布转写完成事件

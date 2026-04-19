@@ -69,13 +69,12 @@ class UsageStats:
     # 记录方法（作为 EventBus handler）
     # ============================================================
 
-    def record_transcribe(self, text: str, duration_ms: int,
-                          language: Optional[str] = None,
-                          is_empty: bool = False):
+    def record_transcribe(self, text: str, language: Optional[str],
+                          duration_ms: int):
         """记录一次转写完成事件。
 
         可直接作为 TRANSCRIBE_COMPLETE 的 handler。
-        签名: (text, language, duration_ms)
+        签名: (text, language, duration_ms) — 与事件发布参数顺序一致。
         """
         with self._lock:
             self._check_date_rollover()
@@ -83,7 +82,7 @@ class UsageStats:
             self._data["total_duration_ms"] += duration_ms
             if language:
                 self._data["languages"][language] = self._data["languages"].get(language, 0) + 1
-            if is_empty or not text or not text.strip():
+            if not text or not text.strip():
                 self._data["empty_result_count"] += 1
             else:
                 self._data["text_lengths"].append(len(text))

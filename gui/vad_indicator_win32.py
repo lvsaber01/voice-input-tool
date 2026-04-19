@@ -56,9 +56,10 @@ class Win32VADWindow(VADIndicator):
         with self._lock:
             if self._visible and self._hwnd:
                 return
+            # 等待旧线程结束（防止快速 show/hide/show 创建多个线程）
+            if self._thread is not None and self._thread.is_alive():
+                self._thread.join(timeout=1.0)
             self._visible = True
-
-        if self._thread is None or not self._thread.is_alive():
             self._running = True
             self._thread = threading.Thread(target=self._window_loop, name="vad-indicator", daemon=True)
             self._thread.start()
