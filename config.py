@@ -34,7 +34,7 @@ class HotkeyConfig:
 @dataclass
 class STTConfig:
     """语音识别引擎配置"""
-    model_size: str = "small"
+    model_size: str = "large-v3-turbo"
     model_path: str = "./models/"
     language: Optional[str] = None   # None=auto
     device: str = "auto"             # auto | cpu | cuda
