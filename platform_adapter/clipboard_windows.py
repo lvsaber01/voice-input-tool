@@ -49,10 +49,20 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
     def simulate_paste(self) -> bool:
         """模拟 Ctrl+V
         
-        keyboard.send() 需要 Windows 消息循环，在非主线程可能崩溃。
-        使用 ctypes windll 调用 SendInput，线程安全。
+        优先 SendInput（线程安全），失败时降级 keyboard.send。
+        keyboard.send 在非主线程可能不稳定，但 SendInput 在某些场景也可能失败。
         """
-        return self._simulate_paste_sendinput()
+        # 方案1: SendInput（线程安全）
+        if self._simulate_paste_sendinput():
+            return True
+        # 方案2: keyboard.send 降级（可能需要主线程）
+        try:
+            import keyboard
+            keyboard.send('ctrl+v')
+            return True
+        except Exception:
+            pass
+        return False
 
     # ------------------------------------------------------------------
     # PowerShell 实现

@@ -151,6 +151,22 @@ class _SingleInstanceLock:
 
 def main():
     """程序入口"""
+    # 0. 启用 faulthandler 捕获 segfault 等致命错误
+    import faulthandler
+    import atexit
+    crash_log_path = None
+    try:
+        if sys.platform == 'win32':
+            crash_log_path = Path(os.getenv('APPDATA', '.')) / 'voice-input-tool' / 'logs' / 'crash.log'
+        else:
+            crash_log_path = Path(__file__).parent / 'logs' / 'crash.log'
+        crash_log_path.parent.mkdir(parents=True, exist_ok=True)
+        crash_file = open(crash_log_path, 'a', encoding='utf-8')
+        faulthandler.enable(file=crash_file, all_threads=True)
+        atexit.register(crash_file.close)
+    except Exception:
+        faulthandler.enable()  # fallback to stderr
+
     # 1. 全局异常兜底
     sys.excepthook = global_exception_handler
 

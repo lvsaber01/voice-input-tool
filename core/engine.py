@@ -313,6 +313,8 @@ class CoreEngine:
     def _on_stt_complete(self, text: str, language: Optional[str],
                          duration_ms: int, error: Optional[Exception]):
         """STT 完成回调（在线程池工作线程中执行）。"""
+        logger.info("STT 回调触发: text='%s' lang=%s dur=%d err=%s",
+                    (text[:30] if text else ''), language, duration_ms, error)
         try:
             self._on_stt_complete_inner(text, language, duration_ms, error)
         except Exception as e:
