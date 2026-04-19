@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 3
+CURRENT_CONFIG_VERSION = 4
 
 
 # ============================================================
@@ -256,10 +256,28 @@ def _migrate_v2_to_v3(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v3_to_v4(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v3 → v4: 强制优化默认值
+    
+    - stt.language: null → zh (auto对短音频不可靠)
+    - inject.method: clipboard → keyboard (绕过剪贴板锁定问题)
+    """
+    raw["config_version"] = 4
+    stt = raw.get("stt", {})
+    if stt.get("language") is None:
+        stt["language"] = "zh"
+    raw["stt"] = stt
+    inject = raw.get("inject", {})
+    inject["method"] = "keyboard"
+    raw["inject"] = inject
+    return raw
+
+
 # 迁移注册表: version → migration_function
 CONFIG_MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
 }
 
 

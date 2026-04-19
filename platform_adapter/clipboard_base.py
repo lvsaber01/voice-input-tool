@@ -50,15 +50,46 @@ class ClipboardInjectorBase(ABC):
             return self._inject_via_clipboard(text)
 
     def _inject_via_keyboard(self, text: str) -> bool:
-        """通过模拟打字注入文字（不使用剪贴板）"""
+        """通过模拟输入注入文字。
+        
+        策略（按优先级尝试）：
+        1. Win32 API 写剪贴板 + SendInput 粘贴
+        2. PowerShell Set-Clipboard + SendInput 粘贴
+        3. 纯键盘模拟（仅支持 ASCII）
+        """
+        # 方案1: Win32 API
+        if self.write_clipboard(text):
+            import time
+            time.sleep(0.05)
+            if self.simulate_paste():
+                logger.info("Win32剪贴板注入成功")
+                return True
+
+        # 方案2: PowerShell 降级
         try:
-            import keyboard
-            keyboard.write(text, delay=0.02)
-            logger.info("键盘输入成功: %d 字符", len(text))
-            return True
+            import subprocess
+            # 用 stdin 传递文本，避免引号转义问题
+            ps_cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "[System.Windows.Forms.Clipboard]::SetText($input)"
+            )
+            result = subprocess.run(
+                ['powershell', '-Command', ps_cmd],
+                input=text, text=True, capture_output=True, timeout=3
+            )
+            if result.returncode == 0:
+                import time
+                time.sleep(0.05)
+                if self.simulate_paste():
+                    logger.info("PowerShell剪贴板注入成功")
+                    return True
+            else:
+                logger.warning("PowerShell SetClipboard失败: %s", result.stderr[:200])
         except Exception as e:
-            logger.error("键盘输入失败: %s，降级到剪贴板", e)
-            return self._inject_via_clipboard(text)
+            logger.warning("PowerShell注入失败: %s", e)
+
+        logger.error("所有注入方式均失败")
+        return False
 
     def _inject_via_clipboard(self, text: str) -> bool:
         """通过剪贴板注入文字"""

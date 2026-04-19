@@ -133,7 +133,16 @@ class StreamTranscriber:
             self._rms_threshold = 0.015
 
     def _run(self):
-        """实时转写主循环"""
+        """实时转写主循环（带全局异常防护）"""
+        try:
+            self._run_inner()
+        except Exception as e:
+            logger.error("实时转写引擎异常退出: %s", e, exc_info=True)
+        finally:
+            logger.info("实时转写引擎已停止，共转写 %d 段", self._segments_count)
+
+    def _run_inner(self):
+        """实时转写主循环逻辑"""
         while self._running:
             try:
                 chunk = self._audio_queue.get(timeout=0.5)
