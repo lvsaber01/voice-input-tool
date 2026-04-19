@@ -78,8 +78,10 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
             result = subprocess.run(
                 ["powershell", "-Sta", "-Command",
                  "Add-Type -AssemblyName System.Windows.Forms;"
-                 "[System.Windows.Forms.Clipboard]::SetText($input)"],
-                input=text, text=True, capture_output=True, timeout=5
+                 "[Console]::InputEncoding = [System.Text.Encoding]::UTF8;"
+                 "[System.Windows.Forms.Clipboard]::SetText([Console]::In.ReadToEnd())"],
+                input=text, text=True, capture_output=True, timeout=5,
+                encoding='utf-8'
             )
             if result.returncode == 0:
                 logger.debug("PowerShell 写入剪贴板成功")
@@ -95,10 +97,12 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
             result = subprocess.run(
                 ["powershell", "-Sta", "-Command",
                  "Add-Type -AssemblyName System.Windows.Forms;"
+                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
                  "if ([System.Windows.Forms.Clipboard]::ContainsText()) {"
                  "  [System.Windows.Forms.Clipboard]::GetText()"
                  "} else { '' }"],
-                capture_output=True, text=True, timeout=5
+                capture_output=True, text=True, timeout=5,
+                encoding='utf-8'
             )
             if result.returncode == 0:
                 return result.stdout.rstrip('\r\n')
