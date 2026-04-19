@@ -91,7 +91,6 @@ class CoreEngine:
         self._recorder = AudioRecorder(config.audio)
         self._silence_detector = SilenceDetector(config.audio, self._on_silence_timeout,
                                                    on_rms_update=self._on_rms_update)
-        self._stt_engine = STTEngine(config.stt)
         self._injector = TextInjector(config.inject)
         self._sound_player = SoundPlayer(config.sound)
         self._stream_transcriber = StreamTranscriber(
