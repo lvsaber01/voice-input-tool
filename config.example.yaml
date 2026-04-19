@@ -1,0 +1,54 @@
+config_version: 3
+mode: batch
+hotkey:
+  trigger: f8
+  mode: toggle
+  conflict_check: true
+stt:
+  engine: faster_whisper    # faster_whisper | funasr
+  model_size: large-v3-turbo
+  model_path: ./models/
+  language: zh              # null=自动检测(短音频不可靠,建议指定zh或en)
+  device: auto
+  compute_type: int8
+  beam_size: 5
+audio:
+  max_duration: 120
+  silence_timeout: 8
+  silence_threshold: 0.01
+  silence_check_interval: 0.5
+  device: null
+inject:
+  method: keyboard           # clipboard=剪贴板注入, keyboard=模拟打字
+  auto_paste: true
+  paste_delay_ms: 100
+  clipboard_backup: true
+  clipboard_restore: true
+  add_trailing_space: false
+sound:
+  enabled: true
+  volume: 0.5
+  start_sound: true
+  end_sound: true
+  complete_sound: true
+web:
+  port: 18921
+  auto_open: false
+startup:
+  minimize: true
+  auto_start: false
+command:
+  enabled: true
+  custom_commands: []
+  sound_feedback: true
+realtime:
+  segment_pause_threshold: 0.8
+  min_segment_duration: 0.3
+  max_segment_duration: 30.0
+  vad_sensitivity: 2
+  vad_window_ms: 30
+  inject_method: clipboard
+  segment_separator: '
+
+    '
+  auto_timestamp: false

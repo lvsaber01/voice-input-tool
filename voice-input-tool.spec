@@ -120,7 +120,7 @@ else:  # macOS
 # ========== datas（数据文件） ==========
 
 datas = [
-    ('config.yaml', '.'),
+    ('config.example.yaml', '.'),  # 模板配置（打包后复制为 config.yaml）
     ('gui/templates', 'gui/templates'),
     ('gui/static', 'gui/static'),
 ]

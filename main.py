@@ -195,8 +195,8 @@ def main():
     try:
         # 4. 加载配置（支持打包后路径）
         if getattr(sys, 'frozen', False):
-            # 打包后：exe 目录的默认配置
-            exe_config = PROJECT_ROOT / "config.yaml"
+            # 打包后：exe 目录的默认配置（模板）
+            exe_config = PROJECT_ROOT / "config.example.yaml"
             user_config = USER_DATA_DIR / "config.yaml"
             
             # 首次启动：复制默认配置到用户目录
