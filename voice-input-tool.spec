@@ -179,7 +179,6 @@ exe = EXE(
     upx=use_upx,
     console=False,  # 无控制台窗口
     icon='build/icon.ico',  # 图标（占位）
-    version='build/version.txt',  # 版本信息（可选）
     uac_admin=False,  # 不强制管理员权限
 )
 
