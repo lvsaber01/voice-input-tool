@@ -66,11 +66,13 @@ class TestWindowsClipboard(unittest.TestCase):
         # 读回验证
         ps_read = (
             "Add-Type -AssemblyName System.Windows.Forms;"
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
             "[System.Windows.Forms.Clipboard]::GetText()"
         )
         result = subprocess.run(
             ["powershell", "-Command", ps_read],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=5,
+            encoding='utf-8'
         )
         self.assertIn(test_text, result.stdout, "PowerShell 读回应包含原文")
         logger.info("✅ PowerShell 剪贴板读写正常")

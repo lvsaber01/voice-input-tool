@@ -21,7 +21,7 @@ class TestConfigDefaults(unittest.TestCase):
             # AppConfig default is v2; after save+reload it stays v2
             self.assertGreaterEqual(cfg.config_version, 2)
             self.assertEqual(cfg.hotkey.trigger, "f8")
-            self.assertEqual(cfg.stt.model_size, "small")
+            self.assertEqual(cfg.stt.model_size, "large-v3-turbo")
             self.assertEqual(cfg.audio.max_duration, 120)
             self.assertEqual(cfg.sound.volume, 0.5)
             self.assertEqual(cfg.command.enabled, True)
