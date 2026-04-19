@@ -18,11 +18,20 @@ import platform
 import threading
 from pathlib import Path
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).parent.resolve()
+# 项目根目录（支持打包后路径）
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后：exe 所在目录
+    PROJECT_ROOT = Path(sys.executable).parent
+    # 使用 runtime_hook 设置的用户数据目录
+    user_data = os.environ.get('VOICE_INPUT_TOOL_USER_DATA', '')
+    USER_DATA_DIR = Path(user_data) if user_data else PROJECT_ROOT
+else:
+    # 开发环境
+    PROJECT_ROOT = Path(__file__).parent.resolve()
+    USER_DATA_DIR = PROJECT_ROOT
 
-# 日志目录（统一放工程目录）
-LOG_DIR = PROJECT_ROOT / "logs"
+# 日志目录（打包后使用用户数据目录）
+LOG_DIR = USER_DATA_DIR / "logs"
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +161,7 @@ def main():
     # 0. 启用 faulthandler 捕获 segfault 等致命错误
     import faulthandler
     import atexit
-    crash_log_path = PROJECT_ROOT / 'logs' / 'crash.log'
+    crash_log_path = LOG_DIR / 'crash.log'
     crash_log_path.parent.mkdir(parents=True, exist_ok=True)
     crash_file = open(crash_log_path, 'a', encoding='utf-8')
     faulthandler.enable(file=crash_file, all_threads=True)
@@ -184,17 +193,37 @@ def main():
         sys.exit(1)
 
     try:
-        # 4. 加载配置
-        config_path = str(PROJECT_ROOT / "config.yaml")
+        # 4. 加载配置（支持打包后路径）
+        if getattr(sys, 'frozen', False):
+            # 打包后：exe 目录的默认配置
+            exe_config = PROJECT_ROOT / "config.yaml"
+            user_config = USER_DATA_DIR / "config.yaml"
+            
+            # 首次启动：复制默认配置到用户目录
+            if not user_config.exists() and exe_config.exists():
+                import shutil
+                shutil.copy2(exe_config, user_config)
+                logger.info("首次启动，复制默认配置到用户目录")
+            
+            # 优先使用用户配置
+            config_path = str(user_config if user_config.exists() else exe_config)
+        else:
+            config_path = str(PROJECT_ROOT / "config.yaml")
+        
         logger.info("加载配置: %s", config_path)
 
         from config import load_config, AppConfig
         config = load_config(config_path)
 
-        # 5. 确保 model_path 目录存在
+        # 5. 确保 model_path 目录存在（支持打包后路径）
         model_path = Path(config.stt.model_path)
         if not model_path.is_absolute():
-            model_path = PROJECT_ROOT / model_path
+            if getattr(sys, 'frozen', False):
+                # 打包后：使用用户数据目录
+                models_dir = USER_DATA_DIR / "models"
+                model_path = models_dir / model_path
+            else:
+                model_path = PROJECT_ROOT / model_path
         model_path.mkdir(parents=True, exist_ok=True)
 
         # 6. 定义退出回调
@@ -259,9 +288,10 @@ def main():
 
         logger.info("CoreEngine 初始化完成，状态: LOADING")
 
-        # 创建使用统计
+        # 创建使用统计（支持打包后路径）
         from core.stats import UsageStats
-        stats = UsageStats(stats_dir=str(PROJECT_ROOT / "stats"))
+        stats_dir = USER_DATA_DIR / "stats" if getattr(sys, 'frozen', False) else PROJECT_ROOT / "stats"
+        stats = UsageStats(stats_dir=str(stats_dir))
 
         # 创建 VAD 指示器
         from gui.vad_indicator import create_vad_indicator

@@ -1,0 +1,87 @@
+name: Build Windows Package
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'  # 使用 3.11 而非 3.13（更稳定）
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+        pip install -r requirements_windows.txt
+    
+    - name: Build editdistance wheel (FunASR dependency)
+      run: |
+        echo "Building editdistance wheel with VC++..."
+        pip wheel editdistance --wheel-dir wheels --no-deps
+        pip install wheels/*.whl
+      continue-on-error: true  # 如果失败，继续（只打包 faster-whisper）
+    
+    - name: Install FunASR (optional)
+      run: |
+        pip install funasr modelscope
+      continue-on-error: true
+    
+    - name: Create placeholder icon
+      run: |
+        python -c "from PIL import Image; img = Image.new('RGB', (256, 256), (30, 144, 255)); img.save('build/icon.ico', 'ICO')"
+        if exist build\icon.ico echo Icon created
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller voice-input-tool.spec --noconfirm --clean
+    
+    - name: Create release package
+      run: |
+        cd dist
+        7z a VoiceInputTool-Windows.zip VoiceInputTool -mx=5
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: VoiceInputTool-Windows
+        path: dist/VoiceInputTool-Windows.zip
+        retention-days: 30
+    
+    - name: Upload build logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: build/*.log
+
+  test-windows:
+    needs: build-windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: VoiceInputTool-Windows
+    
+    - name: Extract and test
+      run: |
+        7z x VoiceInputTool-Windows.zip -o.
+        cd VoiceInputTool
+        echo "Testing exe startup..."
+        start /wait VoiceInputTool.exe
+        echo "Test complete"
