@@ -301,7 +301,9 @@ function loadConfig() {
     triggerInput.value = data.hotkey?.trigger || 'f8';
     document.getElementById('hotkey-mode').value = data.hotkey?.mode || 'toggle';
     // STT
-    document.getElementById('stt-engine').value = data.stt?.engine || 'faster_whisper';
+    const engineVal = data.stt?.engine || 'faster_whisper';
+    document.getElementById('stt-engine').value = engineVal;
+    updateModelOptions();  // 先更新模型下拉选项
     document.getElementById('stt-model-size').value = data.stt?.model_size || 'large-v3-turbo';
     document.getElementById('stt-language').value = data.stt?.language || '';
     document.getElementById('stt-device').value = data.stt?.device || 'auto';
