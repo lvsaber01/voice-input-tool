@@ -31,6 +31,18 @@ TIMER_INTERVAL_MS = 50  # 20fps
 _WND_CLASS_NAME = "VoiceInputToolVAD"
 
 
+# 手动定义 PAINTSTRUCT（ctypes.wintypes 中不存在）
+class PAINTSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("hdc", ctypes.wintypes.HDC),
+        ("fErase", ctypes.wintypes.BOOL),
+        ("rcPaint", ctypes.wintypes.RECT),
+        ("fRestore", ctypes.wintypes.BOOL),
+        ("fIncUpdate", ctypes.wintypes.BOOL),
+        ("rgbReserved", ctypes.c_byte * 32),
+    ]
+
+
 class Win32VADWindow(VADIndicator):
     """Win32 VAD 指示器窗口。
 
@@ -191,7 +203,13 @@ class Win32VADWindow(VADIndicator):
             user32.DestroyWindow(hwnd)
             return 0
 
-        return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+        # 确保参数类型正确，避免 OverflowError
+        return user32.DefWindowProcW(
+            ctypes.wintypes.HWND(hwnd),
+            ctypes.c_uint(msg),
+            ctypes.wintypes.WPARAM(wparam),
+            ctypes.wintypes.LPARAM(lparam)
+        )
 
     def _process_updates(self):
         """处理更新队列（在 WM_TIMER 中调用）"""
@@ -202,7 +220,7 @@ class Win32VADWindow(VADIndicator):
         user32 = ctypes.windll.user32
         gdi32 = ctypes.windll.gdi32
 
-        ps = ctypes.wintypes.PAINTSTRUCT()
+        ps = PAINTSTRUCT()
         hdc = user32.BeginPaint(hwnd, ctypes.byref(ps))
 
         with self._lock:

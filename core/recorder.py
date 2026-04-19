@@ -94,7 +94,11 @@ class AudioRecorder:
             self._stream = None
         logger.info("录音停止")
         if self._buffer:
-            return np.concatenate(list(self._buffer))
+            audio = np.concatenate(list(self._buffer))
+            # sounddevice 返回 (frames, channels)，确保 1D
+            if audio.ndim > 1:
+                audio = audio.flatten()
+            return audio
         return np.array([], dtype=np.float32)
 
     def _audio_callback(self, indata, frames, time_info, status):
