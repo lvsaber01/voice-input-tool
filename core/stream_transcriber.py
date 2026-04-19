@@ -114,24 +114,23 @@ class StreamTranscriber:
                 logger.error("注入失败: %s", e)
 
     def _load_vad(self):
-        """加载 VAD 模型（webrtcvad，~1MB，不依赖 torch）"""
+        """加载 VAD 模型。
+        
+        优先 webrtcvad（更精确），不可用时降级为 RMS 能量检测。
+        Python 3.14 不支持 pkg_resources（webrtcvad 依赖），自动降级。
+        """
         try:
             import webrtcvad
             self._vad = webrtcvad.Vad()
-            self._vad.set_mode(self._config.vad_sensitivity)  # 0-3，越高越严格
+            self._vad.set_mode(self._config.vad_sensitivity)
+            self._vad_mode = 'webrtcvad'
             logger.info("webrtcvad 加载完成，灵敏度: %d", self._config.vad_sensitivity)
-        except ImportError:
-            logger.error("webrtcvad 未安装，尝试安装依赖...")
-            try:
-                import subprocess
-                subprocess.run(["pip", "install", "webrtcvad", "setuptools"], 
-                              capture_output=True, timeout=60)
-                import webrtcvad
-                self._vad = webrtcvad.Vad()
-                self._vad.set_mode(self._config.vad_sensitivity)
-                logger.info("webrtcvad 安装并加载完成")
-            except Exception as e:
-                raise ImportError(f"无法加载 webrtcvad: {e}。请运行: pip install webrtcvad setuptools")
+        except (ImportError, Exception) as e:
+            logger.warning("webrtcvad 不可用 (%s)，降级为 RMS 能量检测", e)
+            self._vad = None
+            self._vad_mode = 'rms'
+            # RMS 能量阈值（经验值，0.01 对应静音阈值）
+            self._rms_threshold = 0.015
 
     def _run(self):
         """实时转写主循环"""
@@ -165,18 +164,32 @@ class StreamTranscriber:
                             self._flush_speech_buffer()
 
     def _vad_detect(self, audio_chunk: np.ndarray) -> bool:
-        """使用 webrtcvad 判断是否为语音"""
-        # webrtcvad 要求 16bit PCM，帧长必须是 10/20/30ms
-        # 16kHz * 30ms = 480 samples
+        """判断是否为语音
+        
+        支持 webrtcvad（精确）和 RMS 能量检测（降级）两种模式。
+        """
+        if self._vad_mode == 'rms':
+            return self._vad_detect_rms(audio_chunk)
+        
+        # webrtcvad 模式
         frame_length = int(self._config.vad_window_ms * SAMPLE_RATE / 1000)
         if len(audio_chunk) < frame_length:
             return False
-        # 取最后一帧判断
         frame = (audio_chunk[-frame_length:] * 32767).astype(np.int16).tobytes()
         try:
             return self._vad.is_speech(frame, SAMPLE_RATE)
         except Exception:
             return False
+
+    def _vad_detect_rms(self, audio_chunk: np.ndarray) -> bool:
+        """RMS 能量检测（webrtcvad 降级方案）
+        
+        简单但有效：计算音频块 RMS 能量，超过阈值视为语音。
+        """
+        if len(audio_chunk) == 0:
+            return False
+        rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
+        return rms >= self._rms_threshold
 
     def _flush_speech_buffer(self):
         """将当前语音段送入 STT 转写并输出"""
