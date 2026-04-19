@@ -25,7 +25,11 @@ class HotkeyManagerBase(ABC):
 
     @abstractmethod
     def register(self):
-        """注册全局热键"""
+        """注册全局热键
+
+        Returns:
+            (success: bool, error_msg: Optional[str]) 元组
+        """
         pass
 
     @abstractmethod

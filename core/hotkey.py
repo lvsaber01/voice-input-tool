@@ -6,7 +6,7 @@ core 层零感知具体平台实现。
 
 import logging
 
-from platform_adapter import create_hotkey_manager
+from platform_adapter.hotkey_base import HotkeyManagerBase
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,12 @@ class HotkeyManager:
     """
 
     def __init__(self, config, on_start, on_stop, on_toggle=None):
+        from platform_adapter import create_hotkey_manager
         self._impl = create_hotkey_manager(config, on_start, on_stop, on_toggle)
 
     def register(self):
-        self._impl.register()
+        """注册热键，返回 (success, error_msg) 元组"""
+        return self._impl.register()
 
     def unregister(self):
         self._impl.unregister()

@@ -55,6 +55,12 @@ def create_hotkey_manager(config, on_start, on_stop, on_toggle=None):
     )
 
 
+def create_key_simulator():
+    """创建当前平台的 KeySimulator 实例"""
+    from platform_adapter.key_simulator import create_key_simulator as _create
+    return _create()
+
+
 def create_clipboard_injector(config):
     """创建当前平台的 ClipboardInjector 实例"""
     return _create_from_registry(

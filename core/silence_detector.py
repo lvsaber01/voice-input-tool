@@ -25,13 +25,16 @@ class SilenceDetector:
         on_silence_timeout: 静音超时回调（由 CoreEngine 提供）
     """
 
-    def __init__(self, config, on_silence_timeout):
+    def __init__(self, config, on_silence_timeout, on_rms_update=None):
         self.config = config
         self._on_silence_timeout = on_silence_timeout
+        self._on_rms_update = on_rms_update  # RMS 更新回调 (rms, is_speech)
         self._queue: queue.Queue = None
         self._running = True
         self._detecting = False
         self._last_sound_time = 0.0
+        self._last_rms_publish = 0.0
+        self._rms_throttle_interval = 0.1  # 100ms 节流
         self._thread: threading.Thread = None
 
     def start(self, buffer_queue: queue.Queue):
@@ -73,7 +76,16 @@ class SilenceDetector:
                 continue
 
             rms = self._calculate_rms(chunk)
-            if rms >= self.config.silence_threshold:
+            is_speech = rms >= self.config.silence_threshold
+
+            # RMS 回调（带节流）
+            if self._on_rms_update:
+                now = time.monotonic()
+                if now - self._last_rms_publish >= self._rms_throttle_interval:
+                    self._on_rms_update(rms, is_speech)
+                    self._last_rms_publish = now
+
+            if is_speech:
                 self._last_sound_time = time.monotonic()
             else:
                 silence_duration = time.monotonic() - self._last_sound_time

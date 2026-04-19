@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 2
+CURRENT_CONFIG_VERSION = 3
 
 
 # ============================================================
@@ -56,6 +56,7 @@ class AudioConfig:
     silence_timeout: int = 8          # 0=关闭静音检测
     silence_threshold: float = 0.01
     silence_check_interval: float = 0.5
+    device: Optional[str] = None      # None=系统默认，或设备名/索引
 
     def __post_init__(self):
         if self.max_duration < 1:
@@ -116,6 +117,14 @@ class StartupConfig:
 
 
 @dataclass
+class CommandConfig:
+    """语音命令模式配置"""
+    enabled: bool = True
+    custom_commands: list = field(default_factory=list)
+    sound_feedback: bool = True
+
+
+@dataclass
 class RealtimeConfig:
     """实时转写模式配置"""
     # 语音段分割
@@ -155,6 +164,7 @@ class AppConfig:
     sound: SoundConfig = field(default_factory=SoundConfig)
     web: WebConfig = field(default_factory=WebConfig)
     startup: StartupConfig = field(default_factory=StartupConfig)
+    command: CommandConfig = field(default_factory=CommandConfig)
     realtime: RealtimeConfig = field(default_factory=RealtimeConfig)
 
 
@@ -170,6 +180,7 @@ _SUB_CONFIG_TYPES: Dict[str, type] = {
     "sound": SoundConfig,
     "web": WebConfig,
     "startup": StartupConfig,
+    "command": CommandConfig,
     "realtime": RealtimeConfig,
 }
 
@@ -233,9 +244,22 @@ def _migrate_v1_to_v2(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v2_to_v3(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v2 → v3: 新增 audio.device 字段 + command 配置节"""
+    raw["config_version"] = 3
+    audio = raw.get("audio", {})
+    if "device" not in audio:
+        audio["device"] = None
+    raw["audio"] = audio
+    if "command" not in raw:
+        raw["command"] = {"enabled": True, "custom_commands": [], "sound_feedback": True}
+    return raw
+
+
 # 迁移注册表: version → migration_function
 CONFIG_MIGRATIONS = {
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 

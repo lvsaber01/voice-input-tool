@@ -38,16 +38,20 @@ class WindowsHotkeyManager(HotkeyManagerBase):
         }
 
     def register(self):
-        """注册全局热键"""
+        """注册全局热键
+
+        Returns:
+            (success: bool, error_msg: Optional[str]) 元组
+        """
         if platform.system() != "Windows":
             logger.warning("非 Windows 平台，热键注册跳过")
-            return
+            return (True, None)
 
         try:
             import keyboard
         except ImportError:
             logger.error("keyboard 库未安装，热键功能不可用")
-            return
+            return (False, "keyboard 库未安装")
 
         # 检测管理员权限
         try:
@@ -55,7 +59,7 @@ class WindowsHotkeyManager(HotkeyManagerBase):
             if not ctypes.windll.shell32.IsUserAnAdmin():
                 raise PermissionError("需要管理员权限运行本工具")
         except PermissionError:
-            raise
+            return (False, "需要管理员权限")
         except Exception as e:
             logger.warning("管理员权限检测异常: %s", e)
 
@@ -65,15 +69,28 @@ class WindowsHotkeyManager(HotkeyManagerBase):
         if self._config.conflict_check:
             self._check_conflicts(key)
 
+        # 清理旧回调后再注册新热键
+        try:
+            keyboard.unhook_all()
+        except Exception:
+            pass
+
         # 根据模式注册
-        if self._config.mode == "push_to_talk":
-            keyboard.on_press_key(key, self._on_press)
-            keyboard.on_release_key(key, self._on_release)
-        else:  # toggle
-            keyboard.add_hotkey(key, self._handle_toggle)
+        try:
+            if self._config.mode == "push_to_talk":
+                keyboard.on_press_key(key, self._on_press)
+                keyboard.on_release_key(key, self._on_release)
+            else:  # toggle
+                keyboard.add_hotkey(key, self._handle_toggle)
+        except ValueError as e:
+            # keyboard.InvalidKeyError 是 ValueError 的子类
+            return (False, f"无效的热键: {key}")
+        except Exception as e:
+            return (False, f"热键 {key} 注册失败（可能被占用）: {e}")
 
         self._registered = True
         logger.info("热键已注册: %s, 模式: %s", key, self._config.mode)
+        return (True, None)
 
     def unregister(self):
         """注销热键"""

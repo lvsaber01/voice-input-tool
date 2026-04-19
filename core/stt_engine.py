@@ -5,6 +5,7 @@ Phase 1 骨架，Phase 2 实现完整逻辑。
 """
 
 import os
+import time
 import threading
 import logging
 from typing import Optional
@@ -73,10 +74,10 @@ class STTEngine:
             return False
 
     def transcribe_async(self, audio: np.ndarray, callback):
-        """异步转写：提交到线程池，完成后回调 callback(text, error)"""
+        """异步转写：提交到线程池，完成后回调 callback(text, language, duration_ms, error)"""
         with self._lock:
             if self._current_future and not self._current_future.done():
-                callback("", RuntimeError("STT 正忙"))
+                callback("", None, 0, RuntimeError("STT 正忙"))
                 return
 
             self._current_future = self._executor.submit(self._do_transcribe, audio)
@@ -85,13 +86,16 @@ class STTEngine:
             )
 
     def _do_transcribe(self, audio: np.ndarray) -> tuple:
-        """实际转写逻辑（线程池中执行）"""
-        try:
-            if audio.size == 0:
-                return ("", None)
-            if len(audio) < 3200:  # <0.2s 音频
-                return ("", None)
+        """实际转写逻辑（线程池中执行）。
 
+        Returns:
+            (text, language, duration_ms, error) 四元组
+        """
+        try:
+            if audio.size == 0 or len(audio) < 3200:  # <0.2s 音频
+                return ("", None, 0, None)
+
+            t0 = time.monotonic()
             segments, info = self.model.transcribe(
                 audio,
                 language=self.config.language,
@@ -99,16 +103,22 @@ class STTEngine:
                 vad_filter=True,
             )
             text = " ".join(seg.text for seg in segments).strip()
-            return (text if text else "", None)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            language = getattr(info, 'language', None)
+            return (text if text else "", language, duration_ms, None)
         except Exception as e:
-            return ("", e)
+            return ("", None, 0, e)
 
     def _unpack_result(self, future: Future) -> tuple:
-        """解包 Future 结果"""
+        """解包 Future 结果。
+
+        Returns:
+            (text, language, duration_ms, error) 四元组
+        """
         try:
             return future.result()
         except Exception as e:
-            return ("", e)
+            return ("", None, 0, e)
 
     def _detect_device(self) -> str:
         """自动检测计算设备"""
@@ -139,7 +149,7 @@ class STTEngine:
         Returns:
             识别文本（空字符串表示无结果）
         """
-        text, _ = self._do_transcribe(audio)
+        text, _, _, _ = self._do_transcribe(audio)
         return text
 
     def shutdown(self):

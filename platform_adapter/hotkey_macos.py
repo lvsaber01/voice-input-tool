@@ -54,7 +54,11 @@ class MacOSHotkeyManager(HotkeyManagerBase):
         self._DEBOUNCE_MS = 0.2
 
     def register(self):
-        """注册全局热键"""
+        """注册全局热键
+
+        Returns:
+            (success: bool, error_msg: Optional[str]) 元组
+        """
         # 检查辅助功能权限
         if not self._check_accessibility():
             self._prompt_accessibility()
@@ -64,7 +68,7 @@ class MacOSHotkeyManager(HotkeyManagerBase):
             import pynput.keyboard as pynput_keyboard
         except ImportError:
             logger.error("pynput 未安装，macOS 热键不可用。请运行: pip install pynput")
-            return
+            return (False, "pynput 未安装")
 
         # 解析目标热键
         self._target_keys = self._parse_hotkey(self._config.trigger)
@@ -89,6 +93,7 @@ class MacOSHotkeyManager(HotkeyManagerBase):
         self._registered = True
         logger.info("macOS 热键已注册: %s, 模式: %s, 目标键: %s",
                      self._config.trigger, self._config.mode, self._target_keys)
+        return (True, None)
 
     def unregister(self):
         """注销热键"""

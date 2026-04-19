@@ -45,6 +45,10 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._handle_get_config()
         elif path == "/api/status":
             self._handle_get_status()
+        elif path == "/api/stats":
+            self._handle_get_stats()
+        elif path == "/api/audio/devices":
+            self._handle_get_audio_devices()
         else:
             self._send_error_json(404, "未找到")
 
@@ -166,6 +170,41 @@ class _ConfigHandler(BaseHTTPRequestHandler):
     # 工具方法
     # ============================================================
 
+    def _handle_get_stats(self):
+        """GET /api/stats?days=7 — 返回使用统计"""
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        days = int(params.get("days", ["7"])[0])
+        try:
+            stats_obj = self._server_ctx._stats
+            if stats_obj is None:
+                self._send_json(200, {"ok": False, "error": "统计模块未启用"})
+                return
+            summary = stats_obj.get_summary(days=days)
+            self._send_json(200, summary)
+        except Exception as e:
+            self._send_error_json(500, f"获取统计失败: {e}")
+
+    def _handle_get_audio_devices(self):
+        """GET /api/audio/devices — 返回输入设备列表"""
+        try:
+            import sounddevice as sd
+            devices = sd.query_devices()
+            input_devices = []
+            for i, dev in enumerate(devices):
+                if dev.get('max_input_channels', 0) > 0:
+                    input_devices.append({
+                        "index": i,
+                        "name": dev.get('name', ''),
+                        "sample_rate": dev.get('default_samplerate', 0),
+                        "channels": dev.get('max_input_channels', 0),
+                    })
+            self._send_json(200, {"ok": True, "devices": input_devices})
+        except ImportError:
+            self._send_json(200, {"ok": True, "devices": [], "warning": "sounddevice 未安装"})
+        except Exception as e:
+            self._send_error_json(500, f"获取设备列表失败: {e}")
+
     def _verify_token(self) -> bool:
         """校验 URL 中的 token 参数"""
         parsed = urlparse(self.path)
@@ -215,9 +254,10 @@ class ConfigWebServer:
         on_config_changed: 配置变更回调
     """
 
-    def __init__(self, config, engine=None, on_config_changed: Optional[Callable] = None):
+    def __init__(self, config, engine=None, stats=None, on_config_changed: Optional[Callable] = None):
         self._config = config
         self._engine = engine
+        self._stats = stats
         self._on_config_changed = on_config_changed
         self._token = secrets.token_hex(16)
         self._config_url = f"http://127.0.0.1:{config.web.port}?token={self._token}"

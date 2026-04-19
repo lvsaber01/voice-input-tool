@@ -244,11 +244,46 @@ def main():
 
         logger.info("CoreEngine 初始化完成，状态: LOADING")
 
+        # 创建使用统计
+        from core.stats import UsageStats
+        stats = UsageStats(stats_dir=str(PROJECT_ROOT / "stats"))
+
+        # 创建 VAD 指示器
+        from gui.vad_indicator import create_vad_indicator
+        vad_indicator = create_vad_indicator()
+
+        # EventBus 订阅
+        from core.events import EngineEvent
+        events = engine.events
+
+        # Stats 订阅
+        events.subscribe(EngineEvent.TRANSCRIBE_COMPLETE, stats.record_transcribe)
+        events.subscribe(EngineEvent.TRANSCRIBE_ERROR, lambda e: stats.record_error())
+        events.subscribe(EngineEvent.MAX_DURATION_TRIGGERED, stats.record_max_duration)
+        events.subscribe(EngineEvent.COMMAND_EXECUTED, lambda name: stats.record_command())
+
+        # VAD 指示器订阅
+        events.subscribe(EngineEvent.RMS_UPDATE, vad_indicator.update)
+        events.subscribe(EngineEvent.RECORDING_STARTED, lambda: vad_indicator.show())
+        events.subscribe(EngineEvent.RECORDING_STOPPED, lambda: vad_indicator.hide())
+
+        # 启动时检测残留剪贴板备份文件并清理
+        import tempfile
+        import glob
+        backup_pattern = os.path.join(tempfile.gettempdir(), "voice_input_tool_cb_*.bak")
+        for bak_file in glob.glob(backup_pattern):
+            try:
+                os.remove(bak_file)
+                logger.info("清理残留剪贴板备份: %s", bak_file)
+            except Exception as e:
+                logger.warning("清理备份文件失败 %s: %s", bak_file, e)
+
         # 9. 启动 Web 配置服务
         from gui.web_server import ConfigWebServer
         web_server = ConfigWebServer(
             config=config,
             engine=engine,
+            stats=stats,
             on_config_changed=None,  # 可扩展：配置变更通知
         )
         web_server.start()
@@ -265,8 +300,18 @@ def main():
                 on_stop=engine.on_hotkey_stop,
                 on_toggle=engine.on_hotkey_toggle,
             )
-            hotkey_manager.register()
-            logger.info("热键已注册: %s (%s)", config.hotkey.trigger, config.hotkey.mode)
+            result = hotkey_manager.register()
+            if hasattr(result, '__len__') and len(result) == 2:
+                ok, err_msg = result
+                if not ok:
+                    logger.warning("热键注册失败: %s", err_msg)
+                    if tray:
+                        tray.show_notification("热键注册失败", str(err_msg))
+                    hotkey_manager = None
+                else:
+                    logger.info("热键已注册: %s (%s)", config.hotkey.trigger, config.hotkey.mode)
+            else:
+                logger.info("热键已注册: %s (%s)", config.hotkey.trigger, config.hotkey.mode)
         except ImportError:
             logger.warning("keyboard 库不可用（非 Windows 或非管理员），跳过热键注册")
             hotkey_manager = None

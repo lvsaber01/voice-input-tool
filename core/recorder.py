@@ -49,15 +49,38 @@ class AudioRecorder:
             except queue.Empty:
                 break
 
-        self._stream = sd.InputStream(
-            samplerate=self.SAMPLE_RATE,
-            channels=1,
-            dtype='float32',
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+        # 解析设备参数
+        device = self.config.device
+        if device is not None:
+            try:
+                device = int(device)
+            except (ValueError, TypeError):
+                pass  # 保留字符串设备名
+
+        try:
+            self._stream = sd.InputStream(
+                samplerate=self.SAMPLE_RATE,
+                channels=1,
+                dtype='float32',
+                callback=self._audio_callback,
+                device=device,
+            )
+            self._stream.start()
+        except Exception as e:
+            if device is not None:
+                logger.warning("指定设备 '%s' 不可用，回退到默认设备: %s", device, e)
+                self._stream = sd.InputStream(
+                    samplerate=self.SAMPLE_RATE,
+                    channels=1,
+                    dtype='float32',
+                    callback=self._audio_callback,
+                )
+                self._stream.start()
+            else:
+                raise
+
         self.is_recording = True
-        logger.info("开始录音，采样率: %d", self.SAMPLE_RATE)
+        logger.info("开始录音，采样率: %d，设备: %s", self.SAMPLE_RATE, device or "默认")
 
     def stop(self) -> np.ndarray:
         """停止录音，返回完整 PCM 数据"""

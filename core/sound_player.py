@@ -60,8 +60,50 @@ class SoundPlayer:
         except Exception as e:
             logger.warning("播放提示音失败: %s", e)
 
+    @staticmethod
+    def _load_wav_stdlib(path) -> tuple:
+        """用标准库 wave + struct 读取 WAV 文件，零外部依赖。
+
+        支持 16bit 和 32bit PCM。
+
+        Returns:
+            (np.float32 数据, 采样率) 元组
+        """
+        import wave
+        import struct
+        import numpy as np
+
+        with wave.open(str(path), 'rb') as wf:
+            samplerate = wf.getframerate()
+            n_frames = wf.getnframes()
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            raw = wf.readframes(n_frames)
+
+        total_samples = n_frames * n_channels
+
+        if sampwidth == 2:  # 16bit PCM
+            fmt = f'<{total_samples}h'
+            samples = struct.unpack(fmt, raw)
+            data = np.array(samples, dtype=np.float32) / 32768.0
+        elif sampwidth == 4:  # 32bit PCM
+            fmt = f'<{total_samples}i'
+            samples = struct.unpack(fmt, raw)
+            data = np.array(samples, dtype=np.float32) / 2147483648.0
+        else:
+            raise ValueError(f"不支持的采样宽度: {sampwidth}（仅支持 16bit/32bit PCM）")
+
+        # 立体声取单声道
+        if n_channels > 1:
+            data = data[::n_channels]
+
+        return (data, samplerate)
+
     def _load_sound(self, sound_name: str):
-        """加载 WAV 音频文件，返回 (data, samplerate) 元组，缓存结果"""
+        """加载 WAV 音频文件，返回 (data, samplerate) 元组，缓存结果。
+
+        优先使用标准库 wave+struct，不再依赖 scipy/soundfile。
+        """
         if sound_name in self._sounds:
             return self._sounds[sound_name]
 
@@ -76,30 +118,9 @@ class SoundPlayer:
             return None
 
         try:
-            from scipy.io import wavfile
-            samplerate, data = wavfile.read(str(wav_path))
-            # 转为 float32
-            import numpy as np
-            if data.dtype != np.float32:
-                data = data.astype(np.float32) / np.iinfo(data.dtype).max
-            # 如果是立体声，取单声道
-            if data.ndim > 1:
-                data = data[:, 0]
-            self._sounds[sound_name] = (data, samplerate)
-            return (data, samplerate)
-        except ImportError:
-            # scipy 未安装，尝试用 soundfile
-            try:
-                import soundfile as sf
-                data, samplerate = sf.read(str(wav_path), dtype='float32')
-                if data.ndim > 1:
-                    data = data[:, 0]
-                self._sounds[sound_name] = (data, samplerate)
-                return (data, samplerate)
-            except ImportError:
-                logger.warning("scipy 和 soundfile 均未安装，无法加载 WAV 文件")
-                self._sounds[sound_name] = None
-                return None
+            result = self._load_wav_stdlib(wav_path)
+            self._sounds[sound_name] = result
+            return result
         except Exception as e:
             logger.warning("加载提示音失败 %s: %s", sound_name, e)
             self._sounds[sound_name] = None

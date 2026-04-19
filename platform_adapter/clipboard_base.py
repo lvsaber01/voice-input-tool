@@ -5,6 +5,8 @@
 
 from abc import ABC, abstractmethod
 import logging
+import os
+import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,10 @@ class ClipboardInjectorBase(ABC):
     Args:
         config: 注入配置
     """
+
+    _BACKUP_FILE = os.path.join(
+        tempfile.gettempdir(), f"voice_input_tool_cb_{os.getpid()}.bak"
+    )
 
     def __init__(self, config):
         self.config = config
@@ -46,9 +52,10 @@ class ClipboardInjectorBase(ABC):
             logger.debug("空文本，跳过注入")
             return True
 
-        # 备份剪贴板
+        # 备份剪贴板（内存 + 文件兜底）
         try:
             self._backup = self.read_clipboard()
+            self._backup_to_file(self._backup)
         except Exception:
             self._backup = None
 
@@ -80,6 +87,58 @@ class ClipboardInjectorBase(ABC):
                 logger.debug("恢复剪贴板失败（可忽略）")
 
         return write_ok
+
+    # ------------------------------------------------------------------
+    # 文件备份 / 恢复（崩溃兜底）
+    # ------------------------------------------------------------------
+
+    def _backup_to_file(self, content: Optional[str]):
+        """将剪贴板内容 base64 编码写入临时文件，并限制文件权限"""
+        try:
+            if content is not None:
+                import base64
+                encoded = base64.b64encode(content.encode('utf-8')).decode('ascii')
+                with open(self._BACKUP_FILE, 'w', encoding='utf-8') as f:
+                    f.write(encoded)
+                self._set_file_private(self._BACKUP_FILE)
+            elif os.path.exists(self._BACKUP_FILE):
+                os.remove(self._BACKUP_FILE)
+        except Exception:
+            pass
+
+    def _restore_from_file(self) -> Optional[str]:
+        """从备份文件 base64 解码恢复剪贴板内容"""
+        try:
+            if os.path.exists(self._BACKUP_FILE):
+                import base64
+                with open(self._BACKUP_FILE, 'r', encoding='utf-8') as f:
+                    return base64.b64decode(f.read()).decode('utf-8')
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _set_file_private(filepath: str):
+        """限制文件权限仅当前用户可读写（Windows: icacls / Unix: chmod 600）"""
+        import platform
+        import stat
+        if platform.system() == 'Windows':
+            try:
+                import subprocess
+                username = os.environ.get('USERNAME', '')
+                if username:
+                    subprocess.run(
+                        ['icacls', filepath, '/inheritance:r',
+                         '/grant:r', f'{username}:R'],
+                        capture_output=True, timeout=2,
+                    )
+            except Exception:
+                pass
+        else:
+            try:
+                os.chmod(filepath, stat.S_IRUSR | stat.S_IWUSR)
+            except Exception:
+                pass
 
     @abstractmethod
     def write_clipboard(self, text: str) -> bool:
