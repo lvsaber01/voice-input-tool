@@ -19,12 +19,8 @@ from pathlib import Path
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
-# 日志目录
-if platform.system() == "Windows":
-    LOG_DIR = Path(os.getenv("APPDATA", ".")) / "voice-input-tool" / "logs"
-else:
-    # macOS / Linux 开发环境：使用项目目录下
-    LOG_DIR = PROJECT_ROOT / "logs"
+# 日志目录（统一放工程目录）
+LOG_DIR = PROJECT_ROOT / "logs"
 
 logger = logging.getLogger(__name__)
 
@@ -154,21 +150,22 @@ def main():
     # 0. 启用 faulthandler 捕获 segfault 等致命错误
     import faulthandler
     import atexit
-    crash_log_path = None
-    try:
-        if sys.platform == 'win32':
-            crash_log_path = Path(os.getenv('APPDATA', '.')) / 'voice-input-tool' / 'logs' / 'crash.log'
-        else:
-            crash_log_path = Path(__file__).parent / 'logs' / 'crash.log'
-        crash_log_path.parent.mkdir(parents=True, exist_ok=True)
-        crash_file = open(crash_log_path, 'a', encoding='utf-8')
-        faulthandler.enable(file=crash_file, all_threads=True)
-        atexit.register(crash_file.close)
-    except Exception:
-        faulthandler.enable()  # fallback to stderr
+    crash_log_path = PROJECT_ROOT / 'logs' / 'crash.log'
+    crash_log_path.parent.mkdir(parents=True, exist_ok=True)
+    crash_file = open(crash_log_path, 'a', encoding='utf-8')
+    faulthandler.enable(file=crash_file, all_threads=True)
+    # atexit 写入正常退出标记，帮助区分崩溃 vs 正常退出
+    atexit.register(lambda: (
+        crash_file.write(f'\n=== NORMAL EXIT {time.strftime("%Y-%m-%d %H:%M:%S")} ===\n'),
+        crash_file.flush(),
+        crash_file.close()
+    ))
 
     # 1. 全局异常兜底
     sys.excepthook = global_exception_handler
+    threading.excepthook = lambda args: logger.critical(
+        "线程未捕获异常: %s in %s", args.exc_value, args.thread
+    )
 
     # 2. 日志初始化
     setup_logging()
