@@ -115,10 +115,23 @@ class StreamTranscriber:
 
     def _load_vad(self):
         """加载 VAD 模型（webrtcvad，~1MB，不依赖 torch）"""
-        import webrtcvad
-        self._vad = webrtcvad.Vad()
-        self._vad.set_mode(self._config.vad_sensitivity)  # 0-3，越高越严格
-        logger.info("webrtcvad 加载完成，灵敏度: %d", self._config.vad_sensitivity)
+        try:
+            import webrtcvad
+            self._vad = webrtcvad.Vad()
+            self._vad.set_mode(self._config.vad_sensitivity)  # 0-3，越高越严格
+            logger.info("webrtcvad 加载完成，灵敏度: %d", self._config.vad_sensitivity)
+        except ImportError:
+            logger.error("webrtcvad 未安装，尝试安装依赖...")
+            try:
+                import subprocess
+                subprocess.run(["pip", "install", "webrtcvad", "setuptools"], 
+                              capture_output=True, timeout=60)
+                import webrtcvad
+                self._vad = webrtcvad.Vad()
+                self._vad.set_mode(self._config.vad_sensitivity)
+                logger.info("webrtcvad 安装并加载完成")
+            except Exception as e:
+                raise ImportError(f"无法加载 webrtcvad: {e}。请运行: pip install webrtcvad setuptools")
 
     def _run(self):
         """实时转写主循环"""

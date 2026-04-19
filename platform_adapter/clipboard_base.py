@@ -32,26 +32,39 @@ class ClipboardInjectorBase(ABC):
         self._backup: Optional[str] = None
 
     def inject(self, text: str) -> bool:
-        """注入文字到当前光标位置（模板方法）。
+        """注入文字（模板方法）。
 
-        流程:
-        1. 空文本短路处理
-        2. 备份剪贴板
-        3. 写入剪贴板
-        4. 模拟粘贴
-        5. 恢复剪贴板（可选）
-
-        Args:
-            text: 要注入的文本
-
-        Returns:
-            True=成功（至少写入剪贴板），False=失败
+        根据 config.method 选择注入方式：
+        - clipboard: 写入剪贴板 + 模拟 Ctrl+V
+        - keyboard: 直接模拟打字（绕过剪贴板，避免锁定问题）
         """
-        # 空文本短路处理
         if not text or not text.strip():
             logger.debug("空文本，跳过注入")
             return True
 
+        method = getattr(self.config, 'method', 'clipboard')
+
+        if method == 'keyboard':
+            return self._inject_via_keyboard(text)
+        else:
+            return self._inject_via_clipboard(text)
+
+    def _inject_via_keyboard(self, text: str) -> bool:
+        """通过模拟打字注入文字（不使用剪贴板）"""
+        try:
+            import keyboard
+            keyboard.write(text, delay=0.02)
+            logger.info("键盘输入成功: %d 字符", len(text))
+            return True
+        except Exception as e:
+            logger.error("键盘输入失败: %s，降级到剪贴板", e)
+            return self._inject_via_clipboard(text)
+
+    def _inject_via_clipboard(self, text: str) -> bool:
+        """通过剪贴板注入文字"""
+
+    def _inject_via_clipboard(self, text: str) -> bool:
+        """通过剪贴板注入文字"""
         # 备份剪贴板（内存 + 文件兜底）
         try:
             self._backup = self.read_clipboard()
