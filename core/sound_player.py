@@ -49,7 +49,10 @@ class SoundPlayer:
         try:
             import sounddevice as sd
 
-            data, samplerate = self._load_sound(sound_name)
+            result = self._load_sound(sound_name)
+            if result is None:
+                return
+            data, samplerate = result
             if data is None:
                 return
 

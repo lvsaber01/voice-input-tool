@@ -121,15 +121,15 @@ class STTEngine:
             return ("", None, 0, e)
 
     def _detect_device(self) -> str:
-        """自动检测计算设备"""
+        """自动检测计算设备
+        
+        默认 CPU，除非明确配置为 cuda。
+        ctranslate2.get_cuda_device_count() 可能检测到驱动但缺少 cublas 运行时库。
+        """
         if self.config.device != "auto":
             return self.config.device
-        try:
-            import ctranslate2
-            if ctranslate2.get_cuda_device_count() > 0:
-                return "cuda"
-        except Exception:
-            pass
+        # auto 模式默认 CPU，避免 cublas 缺失问题
+        # 用户可在 config.yaml 中显式设置 device: cuda
         return "cpu"
 
     def _detect_compute_type(self, device: str) -> str:
