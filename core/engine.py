@@ -75,10 +75,18 @@ class CoreEngine:
         # 子模块
         from core.recorder import AudioRecorder
         from core.silence_detector import SilenceDetector
-        from core.stt_engine import STTEngine
         from core.injector import TextInjector
         from core.sound_player import SoundPlayer
         from core.stream_transcriber import StreamTranscriber
+
+        # 根据配置选择 STT 引擎
+        stt_engine_type = getattr(config.stt, 'engine', 'faster_whisper')
+        if stt_engine_type == 'funasr':
+            from core.stt_funasr import FunASREngine
+            self._stt_engine = FunASREngine(config.stt)
+        else:
+            from core.stt_engine import STTEngine
+            self._stt_engine = STTEngine(config.stt)
 
         self._recorder = AudioRecorder(config.audio)
         self._silence_detector = SilenceDetector(config.audio, self._on_silence_timeout,

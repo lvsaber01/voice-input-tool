@@ -34,6 +34,7 @@ class HotkeyConfig:
 @dataclass
 class STTConfig:
     """语音识别引擎配置"""
+    engine: str = "faster_whisper"   # faster_whisper | funasr
     model_size: str = "large-v3-turbo"
     model_path: str = "./models/"
     language: Optional[str] = None   # None=auto
@@ -42,9 +43,13 @@ class STTConfig:
     beam_size: int = 5
 
     def __post_init__(self):
-        valid_sizes = ("tiny", "base", "small", "medium", "large-v3")
-        if self.model_size not in valid_sizes:
-            raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
+        valid_engines = ("faster_whisper", "funasr")
+        if self.engine not in valid_engines:
+            raise ValueError(f"stt.engine 无效值 '{self.engine}'，可选: {valid_engines}")
+        if self.engine == "faster_whisper":
+            valid_sizes = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
+            if self.model_size not in valid_sizes:
+                raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
         if self.beam_size < 1:
             raise ValueError(f"stt.beam_size 必须 >= 1，当前: {self.beam_size}")
 
