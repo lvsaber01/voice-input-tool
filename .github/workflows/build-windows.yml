@@ -41,7 +41,9 @@ jobs:
       continue-on-error: true
     
     - name: Create placeholder icon
+      shell: cmd
       run: |
+        mkdir build 2>nul
         python -c "from PIL import Image; img = Image.new('RGB', (256, 256), (30, 144, 255)); img.save('build/icon.ico', 'ICO')"
         if exist build\icon.ico echo Icon created
     
@@ -50,6 +52,7 @@ jobs:
         pyinstaller voice-input-tool.spec --noconfirm --clean
     
     - name: Create release package
+      shell: cmd
       run: |
         cd dist
         7z a VoiceInputTool-Windows.zip VoiceInputTool -mx=5
@@ -79,9 +82,10 @@ jobs:
         name: VoiceInputTool-Windows
     
     - name: Extract and test
+      shell: cmd
       run: |
         7z x VoiceInputTool-Windows.zip -o.
         cd VoiceInputTool
-        echo "Testing exe startup..."
+        echo Testing exe startup...
         start /wait VoiceInputTool.exe
-        echo "Test complete"
+        echo Test complete
