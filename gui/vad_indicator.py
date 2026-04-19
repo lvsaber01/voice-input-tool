@@ -48,16 +48,12 @@ class DummyVADIndicator(VADIndicator):
 
 
 def create_vad_indicator() -> VADIndicator:
-    """工厂函数：根据平台创建 VADIndicator 实例"""
-    if sys.platform == "win32":
-        try:
-            from gui.vad_indicator_win32 import Win32VADWindow
-            return Win32VADWindow()
-        except Exception as e:
-            logger.warning("Win32 VAD 指示器创建失败，降级为 tkinter: %s", e)
-            # fall through to tkinter fallback
-
-    # macOS / Linux / Win32 fallback → tkinter
+    """工厂函数：根据平台创建 VADIndicator 实例
+    
+    注意：Win32 ctypes 窗口在 Python 3.14 上 access violation，
+    统一使用 tkinter 跨平台方案。
+    """
+    # 所有平台统一用 tkinter（Win32 ctypes 在 Python 3.14 不兼容）
     try:
         from gui.vad_indicator_tk import TkVADIndicator
         return TkVADIndicator()

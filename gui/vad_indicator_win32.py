@@ -92,22 +92,11 @@ class Win32VADWindow(VADIndicator):
             self._is_speech = is_speech
 
     def _window_loop(self):
-        """窗口消息循环（在独立线程中运行）"""
-        try:
-            self._register_class()
-            self._create_window()
-            # 消息循环
-            msg = ctypes.wintypes.MSG()
-            user32 = ctypes.windll.user32
-            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0):
-                user32.TranslateMessage(ctypes.byref(msg))
-                user32.DispatchMessageW(ctypes.byref(msg))
-        except Exception as e:
-            logger.error("VAD 窗口循环异常: %s", e)
-        finally:
-            self._hwnd = None
-            self._running = False
-
+        """窗口消息循环（Python 3.14 ctypes Win32 窗口创建不兼容，已禁用）"""
+        # Python 3.14+ ctypes Win32 RegisterClass/CreateWindow 导致 access violation
+        # 使用 tkinter 方案替代（见 vad_indicator_tk.py）
+        logger.info("Win32 VAD 指示器已禁用（Python 3.14 兼容性问题），使用 tkinter 替代")
+        self._running = False
     def _register_class(self):
         """注册窗口类"""
         user32 = ctypes.windll.user32
