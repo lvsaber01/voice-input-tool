@@ -1,11 +1,13 @@
 """Windows 剪贴板注入器
 
-使用 Win32 API (ctypes)，从 core/injector.py 迁移。
+优先使用 PowerShell（Python 3.13+ ctypes 剪贴板 API 不稳定），
+Win32 API 作为降级备选。
 """
 
 import time
 import ctypes
 import logging
+import subprocess
 from typing import Optional
 
 from platform_adapter.clipboard_base import ClipboardInjectorBase
@@ -20,26 +22,109 @@ GMEM_MOVEABLE = 0x0002
 class WindowsClipboardInjector(ClipboardInjectorBase):
     """Windows 剪贴板注入器。
 
-    使用 Win32 Clipboard API 写入剪贴板，通过 SendInput 模拟 Ctrl+V。
+    PowerShell 为主方案（稳定），Win32 API 为备选。
+    Python 3.13+ 的 ctypes 剪贴板操作不稳定（OpenClipboard 频繁失败）。
     """
 
     def write_clipboard(self, text: str) -> bool:
-        """使用 Win32 API 写入剪贴板（带重试）"""
+        """写入剪贴板（PowerShell 优先，Win32 降级）"""
+        # 方案1: PowerShell
+        if self._write_clipboard_powershell(text):
+            return True
+        # 方案2: Win32 API
+        if self._write_clipboard_win32(text):
+            return True
+        logger.error("所有剪贴板写入方式均失败")
+        return False
+
+    def read_clipboard(self) -> Optional[str]:
+        """读取剪贴板内容（PowerShell 优先）"""
+        # PowerShell
+        result = self._read_clipboard_powershell()
+        if result is not None:
+            return result
+        # Win32
+        return self._read_clipboard_win32()
+
+    def simulate_paste(self) -> bool:
+        """模拟 Ctrl+V（使用 keyboard 库，比 SendInput ctypes 更可靠）"""
+        try:
+            import keyboard
+            keyboard.send('ctrl+v')
+            return True
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning("keyboard.send 失败: %s，降级 SendInput", e)
+
+        # 降级: SendInput
+        return self._simulate_paste_sendinput()
+
+    # ------------------------------------------------------------------
+    # PowerShell 实现
+    # ------------------------------------------------------------------
+
+    def _write_clipboard_powershell(self, text: str) -> bool:
+        """PowerShell 写入剪贴板"""
+        try:
+            # 用 stdin 传递文本，避免命令行转义问题
+            # 使用 STA 模式确保剪贴板访问正常
+            ps_cmd = (
+                "powershell -Sta -Command \""
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "[System.Windows.Forms.Clipboard]::SetText($input)"
+                "\""
+            )
+            result = subprocess.run(
+                ["powershell", "-Sta", "-Command",
+                 "Add-Type -AssemblyName System.Windows.Forms;"
+                 "[System.Windows.Forms.Clipboard]::SetText($input)"],
+                input=text, text=True, capture_output=True, timeout=5
+            )
+            if result.returncode == 0:
+                logger.debug("PowerShell 写入剪贴板成功")
+                return True
+            logger.warning("PowerShell 写入失败: %s", result.stderr[:200])
+        except Exception as e:
+            logger.warning("PowerShell 写入异常: %s", e)
+        return False
+
+    def _read_clipboard_powershell(self) -> Optional[str]:
+        """PowerShell 读取剪贴板"""
+        try:
+            result = subprocess.run(
+                ["powershell", "-Sta", "-Command",
+                 "Add-Type -AssemblyName System.Windows.Forms;"
+                 "if ([System.Windows.Forms.Clipboard]::ContainsText()) {"
+                 "  [System.Windows.Forms.Clipboard]::GetText()"
+                 "} else { '' }"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                return result.stdout.rstrip('\r\n')
+        except Exception as e:
+            logger.warning("PowerShell 读取异常: %s", e)
+        return None
+
+    # ------------------------------------------------------------------
+    # Win32 API 实现（降级）
+    # ------------------------------------------------------------------
+
+    def _write_clipboard_win32(self, text: str) -> bool:
+        """Win32 API 写入剪贴板（带重试）"""
         try:
             kernel32 = ctypes.windll.kernel32
             user32 = ctypes.windll.user32
 
-            # OpenClipboard 可能被其他程序占用，重试 3 次
             opened = False
             for attempt in range(3):
                 if user32.OpenClipboard(0):
                     opened = True
                     break
-                logger.debug("OpenClipboard 重试 %d/3", attempt + 1)
                 time.sleep(0.05)
 
             if not opened:
-                logger.error("OpenClipboard 失败（重试3次）")
+                logger.debug("Win32 OpenClipboard 失败（重试3次）")
                 return False
 
             try:
@@ -55,65 +140,16 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
                 kernel32.GlobalUnlock(h)
                 result = user32.SetClipboardData(CF_UNICODETEXT, h)
                 if not result:
-                    logger.error("SetClipboardData 失败")
                     return False
                 return True
             finally:
                 user32.CloseClipboard()
         except Exception as e:
-            logger.error("写入剪贴板异常: %s", e)
-            return False
+            logger.debug("Win32 写入异常: %s", e)
+        return False
 
-    def simulate_paste(self) -> bool:
-        """使用 SendInput 模拟 Ctrl+V"""
-        try:
-            import ctypes
-            user32 = ctypes.windll.user32
-
-            INPUT_KEYBOARD = 1
-            KEYEVENTF_KEYUP = 0x0002
-            VK_CONTROL = 0x11
-            VK_V = 0x56
-
-            class KEYBDINPUT(ctypes.Structure):
-                _fields_ = [
-                    ("wVk", ctypes.c_ushort),
-                    ("wScan", ctypes.c_ushort),
-                    ("dwFlags", ctypes.c_ulong),
-                    ("time", ctypes.c_ulong),
-                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-                ]
-
-            class INPUT(ctypes.Structure):
-                class _INPUT(ctypes.Union):
-                    _fields_ = [("ki", KEYBDINPUT)]
-                _fields_ = [
-                    ("type", ctypes.c_ulong),
-                    ("_input", _INPUT),
-                ]
-
-            def make_key_input(vk, flags=0):
-                inp = INPUT()
-                inp.type = INPUT_KEYBOARD
-                inp._input.ki.wVk = vk
-                inp._input.ki.dwFlags = flags
-                return inp
-
-            inputs = [
-                make_key_input(VK_CONTROL),
-                make_key_input(VK_V),
-                make_key_input(VK_V, KEYEVENTF_KEYUP),
-                make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
-            ]
-            n = len(inputs)
-            user32.SendInput(n, inputs, ctypes.sizeof(INPUT))
-            return True
-        except Exception as e:
-            logger.error("模拟粘贴异常: %s", e)
-            return False
-
-    def read_clipboard(self) -> Optional[str]:
-        """读取当前剪贴板内容"""
+    def _read_clipboard_win32(self) -> Optional[str]:
+        """Win32 API 读取剪贴板"""
         try:
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
@@ -134,3 +170,51 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
                 user32.CloseClipboard()
         except Exception:
             return None
+
+    def _simulate_paste_sendinput(self) -> bool:
+        """SendInput 模拟 Ctrl+V"""
+        try:
+            user32 = ctypes.windll.user32
+
+            INPUT_KEYBOARD = 1
+            KEYEVENTF_KEYUP = 0x0002
+            VK_CONTROL = 0x11
+            VK_V = 0x56
+
+            class KEYBDINPUT(ctypes.Structure):
+                _fields_ = [
+                    ("wVk", ctypes.c_ushort),
+                    ("wScan", ctypes.c_ushort),
+                    ("dwFlags", ctypes.c_ulong),
+                    ("time", ctypes.c_ulong),
+                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+                ]
+
+            class INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+
+            class INPUT(ctypes.Structure):
+                _fields_ = [
+                    ("type", ctypes.c_ulong),
+                    ("union", INPUT_UNION),
+                ]
+
+            def make_key_input(vk, flags=0):
+                inp = INPUT()
+                inp.type = INPUT_KEYBOARD
+                inp.union.ki.wVk = vk
+                inp.union.ki.dwFlags = flags
+                return inp
+
+            inputs = [
+                make_key_input(VK_CONTROL),
+                make_key_input(VK_V),
+                make_key_input(VK_V, KEYEVENTF_KEYUP),
+                make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
+            ]
+            arr = (INPUT * len(inputs))(*inputs)
+            user32.SendInput(len(inputs), arr, ctypes.sizeof(INPUT))
+            return True
+        except Exception as e:
+            logger.error("SendInput 失败: %s", e)
+            return False

@@ -306,7 +306,8 @@ def load_config(path: str) -> AppConfig:
         raw = {}
 
     # 版本迁移
-    version = raw.get("config_version", 1)
+    original_version = raw.get("config_version", 1)
+    version = original_version
     while version < CURRENT_CONFIG_VERSION:
         migrator = CONFIG_MIGRATIONS.get(version)
         if migrator:
@@ -319,6 +320,13 @@ def load_config(path: str) -> AppConfig:
 
     config = _flatten_to_appconfig(raw)
     logger.info("配置加载完成 (version=%d)", config.config_version)
+    # 如果发生了迁移，自动保存
+    if original_version < CURRENT_CONFIG_VERSION:
+        try:
+            save_config(path, config)
+            logger.info("配置迁移已自动保存 (v%d -> v%d)", original_version, CURRENT_CONFIG_VERSION)
+        except Exception as e:
+            logger.warning("迁移后保存失败: %s", e)
     return config
 
 
