@@ -34,8 +34,8 @@ class FunASREngine:
         try:
             from funasr import AutoModel
 
-            # Paraformer-zh 中文模型，也支持英文
-            model_name = "paraformer-zh"
+            # 从配置获取模型名称
+            model_name = self.config.model_size or "paraformer-zh"
             logger.info("加载 FunASR 模型: %s", model_name)
 
             self.model = AutoModel(

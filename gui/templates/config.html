@@ -106,15 +106,25 @@ input[type="range"] { width: 100%; accent-color: #4CAF50; }
   <!-- STT -->
   <div id="tab-stt" class="panel">
     <div class="form-group">
+      <label>引擎 ⚠️</label>
+      <select id="stt-engine" onchange="updateModelOptions()">
+        <option value="faster_whisper">Faster-Whisper（多语言）</option>
+        <option value="funasr">FunASR Paraformer（中文极快）</option>
+      </select>
+      <div class="hint warn">⚠️ 更改此项需要重启程序</div>
+    </div>
+    <div class="form-group">
       <label>模型 ⚠️</label>
       <select id="stt-model-size">
         <option value="tiny">tiny（最快，精度低）</option>
         <option value="base">base（快，精度一般）</option>
-        <option value="small" selected>small（推荐）</option>
+        <option value="small">small（推荐）</option>
         <option value="medium">medium（慢，精度高）</option>
         <option value="large-v3">large-v3（最慢，精度最高）</option>
+        <option value="large-v3-turbo">large-v3-turbo（快，精度高）⭐</option>
       </select>
       <div class="hint warn">⚠️ 更改此项需要重启程序</div>
+      <div class="hint" id="model-hint">large-v3-turbo：CPU 约1-2秒，效果接近 large</div>
     </div>
     <div class="form-group">
       <label>语言</label>
@@ -291,7 +301,8 @@ function loadConfig() {
     triggerInput.value = data.hotkey?.trigger || 'f8';
     document.getElementById('hotkey-mode').value = data.hotkey?.mode || 'toggle';
     // STT
-    document.getElementById('stt-model-size').value = data.stt?.model_size || 'small';
+    document.getElementById('stt-engine').value = data.stt?.engine || 'faster_whisper';
+    document.getElementById('stt-model-size').value = data.stt?.model_size || 'large-v3-turbo';
     document.getElementById('stt-language').value = data.stt?.language || '';
     document.getElementById('stt-device').value = data.stt?.device || 'auto';
     // Audio
@@ -326,6 +337,7 @@ function gatherConfig() {
       mode: document.getElementById('hotkey-mode').value,
     },
     stt: {
+      engine: document.getElementById('stt-engine').value,
       model_size: document.getElementById('stt-model-size').value,
       language: document.getElementById('stt-language').value || null,
       device: document.getElementById('stt-device').value,
@@ -399,9 +411,53 @@ function loadStatus() {
   }).catch(() => {});
 }
 
+// ============ 模型选项动态更新 ============
+function updateModelOptions() {
+  const engine = document.getElementById('stt-engine').value;
+  const modelSelect = document.getElementById('stt-model-size');
+  const modelHint = document.getElementById('model-hint');
+  
+  // 清空当前选项
+  modelSelect.innerHTML = '';
+  
+  if (engine === 'faster_whisper') {
+    const options = [
+      ['tiny', 'tiny（最快，精度低）'],
+      ['base', 'base（快，精度一般）'],
+      ['small', 'small（平衡）'],
+      ['medium', 'medium（慢，精度高）'],
+      ['large-v3', 'large-v3（最慢，精度最高）'],
+      ['large-v3-turbo', 'large-v3-turbo（快，精度高）⭐'],
+    ];
+    options.forEach(([v, t]) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = t;
+      if (v === 'large-v3-turbo') opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
+    modelHint.textContent = 'large-v3-turbo：CPU 约1-2秒，效果接近 large';
+  } else if (engine === 'funasr') {
+    const options = [
+      ['paraformer-zh', 'Paraformer-zh（中文极快）⭐'],
+      ['paraformer-zh-streaming', 'Paraformer-zh-streaming（实时流式）'],
+      ['paraformer-en-zh', 'Paraformer-en-zh（中英混合）'],
+    ];
+    options.forEach(([v, t]) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = t;
+      opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
+    modelHint.textContent = 'Paraformer：CPU <0.5秒，中文准确率更高';
+  }
+}
+
 // ============ 初始化 ============
 loadConfig();
 loadStatus();
+updateModelOptions();  // 初始化模型选项
 setInterval(loadStatus, 5000);
 </script>
 </body>
