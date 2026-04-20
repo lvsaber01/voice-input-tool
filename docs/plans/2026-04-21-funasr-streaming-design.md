@@ -56,7 +56,35 @@ faster-whisper → STTEngine + VADSegmentTranscriber（不支持流式）
 
 ## 4. 核心接口设计
 
-### 4.1 FunASRStreamingEngine
+### 4.1 流式引擎抽象接口
+
+```python
+from typing import Protocol
+
+class StreamingEngineProtocol(Protocol):
+    """流式引擎抽象接口
+    
+    所有流式引擎（FunASR、Sherpa-onnx 等）都应实现此接口。
+    """
+    
+    def load_model(self) -> tuple[bool, str]:
+        """加载模型"""
+        ...
+    
+    def get_chunk_samples(self) -> int:
+        """返回引擎要求的 chunk 样本数"""
+        ...
+    
+    def transcribe_chunk(self, audio_chunk: np.ndarray, is_final: bool) -> str:
+        """流式转写一个 chunk"""
+        ...
+    
+    def reset(self):
+        """重置流式状态"""
+        ...
+```
+
+### 4.2 FunASRStreamingEngine
 
 ```python
 class FunASRStreamingEngine:
@@ -69,70 +97,168 @@ class FunASRStreamingEngine:
     """
     
     CHUNK_SIZE = [0, 10, 5]
+    CHUNK_MS = 600  # 固定值，不可配置
+    CHUNK_SAMPLES = 9600  # 16000 * 0.6
     
     def __init__(self, config):
         self.config = config
         self.model = None
-        self.cache = {}  # 流式状态缓存
+        self._cache = {}  # 流式状态缓存
+        self._lock = threading.Lock()  # 保护 cache 状态
     
     def load_model(self) -> tuple[bool, str]:
         """加载 paraformer-zh-streaming 模型"""
+    
+    def get_chunk_samples(self) -> int:
+        """返回引擎要求的 chunk 样本数"""
+        return self.CHUNK_SAMPLES
     
     def transcribe_chunk(self, audio_chunk: np.ndarray, is_final: bool) -> str:
         """流式转写 - 每600ms调用一次
         
         Args:
-            audio_chunk: 9600 samples (600ms @ 16kHz)
+            audio_chunk: 音频数据（长度由 get_chunk_samples 决定）
             is_final: 最后一个chunk时True，强制输出
             
         Returns:
-            增量文本（可能为空，等待更多chunk）
+            当前 chunk 的增量文本（非累积全量）
+            - 中间 chunk：可能返回增量，也可能为空（等待更多上下文）
+            - is_final=True：返回最后累积的文本
+            - 异常时返回空字符串，不中断循环
         """
+        try:
+            with self._lock:
+                result = self.model.generate(
+                    input=audio_chunk,
+                    cache=self._cache,
+                    is_final=is_final,
+                    chunk_size=self.CHUNK_SIZE,
+                    encoder_chunk_look_back=4,
+                    decoder_chunk_look_back=1
+                )
+                if result and len(result) > 0:
+                    return result[0].get('text', '') or ''
+                return ''
+        except Exception as e:
+            logger.error("流式转写异常: %s", e)
+            return ''  # 返回空字符串，不中断循环
     
     def reset(self):
-        """重置流式状态，开始新会话"""
-        self.cache = {}
+        """重置流式状态，开始新会话（线程安全）"""
+        with self._lock:
+            self._cache = {}
 ```
 
-### 4.2 StreamingTranscriber
+### 4.3 StreamingTranscriber
 
 ```python
 class StreamingTranscriber:
     """流式转写器
     
-    从音频队列消费 → 固定 chunk 切分 → 流式引擎转写 → 输出回调
+    从音频队列消费 → chunk 切分 → 流式引擎转写 → 输出队列解耦
+    
+    线程模型：
+    - _run() 在独立线程中运行
+    - _inject_worker() 在另一个线程中运行，解耦回调阻塞
     """
     
-    CHUNK_MS = 600  # FunASR streaming chunk 大小
-    CHUNK_SAMPLES = 9600  # 16000 * 0.6
+    def __init__(self, config):
+        self._config = config
+        self._running = False
+        self._thread = None
+        self._inject_thread = None
+        self._inject_queue = queue.Queue(maxsize=10)  # 解耦注入
     
-    def start(self, audio_queue, engine, on_segment):
-        """启动流式转写"""
+    def start(self, audio_queue: queue.Queue, engine: StreamingEngineProtocol, on_segment):
+        """启动流式转写
+        
+        Args:
+            audio_queue: AudioRecorder 的输出队列
+            engine: 流式引擎实例（实现 StreamingEngineProtocol）
+            on_segment: 文本输出回调
+        """
+        self._audio_queue = audio_queue
+        self._engine = engine
+        self._on_segment = on_segment
+        self._chunk_samples = engine.get_chunk_samples()  # 从引擎获取
+        self._running = True
+        
+        # 启动转写线程
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        
+        # 启动注入线程（解耦回调阻塞）
+        self._inject_thread = threading.Thread(target=self._inject_worker, daemon=True)
+        self._inject_thread.start()
     
     def stop(self):
         """停止流式转写，处理剩余音频"""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+        # 处理剩余 buffer
+        if self._buffer:
+            self._flush_buffer(is_final=True)
+        # 等待注入队列清空
+        self._inject_queue.put(None)  # sentinel
+        if self._inject_thread:
+            self._inject_thread.join(timeout=3)
+    
+    def _inject_worker(self):
+        """独立注入线程，避免阻塞转写循环"""
+        while True:
+            text = self._inject_queue.get()
+            if text is None:
+                break
+            try:
+                self._on_segment(text)
+            except Exception as e:
+                logger.error("注入回调异常: %s", e)
     
     def _run(self):
-        """主循环：累积够600ms就处理"""
+        """主循环：累积够 chunk_samples 就处理"""
         buffer = []
         while self._running:
-            chunk = self._audio_queue.get(timeout=0.5)
-            buffer.extend(chunk)
+            try:
+                chunk = self._audio_queue.get(timeout=0.5)
+                buffer.extend(chunk)
+            except queue.Empty:
+                # 超时时如果 buffer 非空，也触发一次处理（避免延迟累积）
+                if buffer:
+                    self._flush_buffer(is_final=False)
+                continue
             
-            # 累积够600ms就处理
-            while len(buffer) >= self.CHUNK_SAMPLES:
-                audio_chunk = np.array(buffer[:self.CHUNK_SAMPLES])
-                buffer = buffer[self.CHUNK_SAMPLES:]
+            # 累积够 chunk_samples 就处理
+            while len(buffer) >= self._chunk_samples:
+                audio_chunk = np.array(buffer[:self._chunk_samples])
+                buffer = buffer[self._chunk_samples:]
                 
                 text = self._engine.transcribe_chunk(audio_chunk, is_final=False)
                 if text:
-                    self._on_segment(text)
+                    self._put_inject(text)
         
         # 结束时处理剩余
         if buffer:
             text = self._engine.transcribe_chunk(np.array(buffer), is_final=True)
             if text:
-                self._on_segment(text)
+                self._put_inject(text)
+    
+    def _flush_buffer(self, is_final: bool):
+        """处理当前 buffer"""
+        if not self._buffer:
+            return
+        audio_chunk = np.array(self._buffer)
+        self._buffer = []
+        text = self._engine.transcribe_chunk(audio_chunk, is_final=is_final)
+        if text:
+            self._put_inject(text)
+    
+    def _put_inject(self, text: str):
+        """放入注入队列"""
+        try:
+            self._inject_queue.put_nowait(text)
+        except queue.Full:
+            logger.warning("注入队列已满，丢弃文本")
 ```
 
 ---
@@ -144,10 +270,13 @@ class StreamingTranscriber:
 ```python
 @dataclass
 class StreamingConfig:
-    """流式转写配置（FunASR streaming 模式）"""
+    """流式转写配置"""
     enabled: bool = True              # 是否启用流式
-    chunk_size_ms: int = 600          # chunk 大小（官方推荐）
-    lookahead_ms: int = 300           # 后瞻大小（官方推荐）
+    max_queue_size: int = 300         # 音频队列上限（chunk 数）
+    overflow_strategy: str = "drop_old"  # 队列溢出策略：drop_old | block
+    
+    # 注意：chunk_size 和 lookahead 是模型硬性参数，不可配置
+    # FunASR streaming 固定使用 [0, 10, 5] = 600ms + 300ms lookahead
 ```
 
 ### 5.2 config.yaml 示例
@@ -217,7 +346,25 @@ FunASR 流式模型要求 16kHz：
 - [ ] 结束时剩余音频正确处理（is_final=True）
 - [ ] 配置 `streaming.enabled=false` 时降级到 VAD 分段
 - [ ] faster-whisper 模式仍使用 VAD 分段
+- [ ] cache 状态线程安全（Lock 保护）
+- [ ] transcribe_chunk 异常不中断循环
+- [ ] queue.get 超时时 buffer 正确处理
+- [ ] 模型名与 streaming.enabled 交叉验证
+
+## 10. 配置验证
+
+启动时校验配置一致性：
+```python
+def validate_streaming_config(config):
+    if config.stt.streaming.enabled:
+        if config.stt.engine != 'funasr':
+            logger.warning("streaming.enabled=true 仅支持 FunASR，自动禁用")
+            config.stt.streaming.enabled = False
+        if config.stt.model_size != 'paraformer-zh-streaming':
+            logger.warning("流式模式建议使用 paraformer-zh-streaming 模型")
+```
 
 ---
 
 *设计确认时间: 2026-04-21 00:41*
+*v2 修订时间: 2026-04-21 00:50（评审第一轮问题修复）*
