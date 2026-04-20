@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 SAMPLE_RATE = 16000
 
 
-class StreamTranscriber:
-    """实时转写引擎。
+class VADSegmentTranscriber:
+    """VAD 分段转写引擎（降级备用）。
 
     职责：
     - 从 audio_queue 持续消费音频

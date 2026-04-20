@@ -28,7 +28,25 @@ class HotkeyConfig:
     def __post_init__(self):
         valid_modes = ("push_to_talk", "toggle")
         if self.mode not in valid_modes:
-            raise ValueError(f"hotkey.mode 无效值 '{self.mode}'，可选: {valid_modes}")
+            raise ValueError(f"hotkey.mode 无效值 '{self.mode}', 可选: {valid_modes}")
+
+
+@dataclass
+class StreamingConfig:
+    """流式转写配置（FunASR streaming 模式）"""
+    enabled: bool = True              # 是否启用流式
+    max_queue_size: int = 300         # 音频队列上限（chunk 数）
+    overflow_strategy: str = "drop_old"  # 队列溢出策略：drop_old | block
+    
+    # 注意：chunk_size 和 lookahead 是模型硬性参数，不可配置
+    # FunASR streaming 固定使用 [0, 10, 5] = 600ms + 300ms lookahead
+    
+    def __post_init__(self):
+        if self.max_queue_size < 10:
+            raise ValueError(f"streaming.max_queue_size 必须 >= 10，当前: {self.max_queue_size}")
+        valid_strategies = ("drop_old", "block")
+        if self.overflow_strategy not in valid_strategies:
+            raise ValueError(f"streaming.overflow_strategy 无效值 '{self.overflow_strategy}'，可选: {valid_strategies}")
 
 
 @dataclass
@@ -44,6 +62,8 @@ class STTConfig:
     # 镜像配置（中国用户）
     hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像
     modelscope_endpoint: str = ""  # ModelScope 镜像（可选）
+    # 流式配置（仅 FunASR 支持）
+    streaming: StreamingConfig = field(default_factory=StreamingConfig)
 
     def __post_init__(self):
         valid_engines = ("faster_whisper", "funasr")
@@ -55,6 +75,15 @@ class STTConfig:
                 raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
         if self.beam_size < 1:
             raise ValueError(f"stt.beam_size 必须 >= 1，当前: {self.beam_size}")
+        
+        # 处理 streaming 字段（可能是 dict 或 StreamingConfig）
+        if isinstance(self.streaming, dict):
+            self.streaming = StreamingConfig(**self.streaming)
+        
+        # 流式配置验证
+        if self.streaming.enabled and self.engine != 'funasr':
+            logger.warning("streaming.enabled=true 仅支持 FunASR，自动禁用")
+            self.streaming.enabled = False
 
 
 @dataclass
@@ -190,6 +219,7 @@ _SUB_CONFIG_TYPES: Dict[str, type] = {
     "startup": StartupConfig,
     "command": CommandConfig,
     "realtime": RealtimeConfig,
+    "streaming": StreamingConfig,  # 新增
 }
 
 

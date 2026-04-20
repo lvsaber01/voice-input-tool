@@ -77,26 +77,50 @@ class CoreEngine:
         from core.silence_detector import SilenceDetector
         from core.injector import TextInjector
         from core.sound_player import SoundPlayer
-        from core.stream_transcriber import StreamTranscriber
-
-        # 根据配置选择 STT 引擎
+        
+        # 根据配置选择 STT 引擎和转写模式
         stt_engine_type = getattr(config.stt, 'engine', 'faster_whisper')
-        if stt_engine_type == 'funasr':
+        streaming_enabled = getattr(config.stt.streaming, 'enabled', False) if stt_engine_type == 'funasr' else False
+        
+        if streaming_enabled:
+            # 流式模式：FunASR 流式引擎 + StreamingTranscriber
+            from core.stt_funasr_streaming import FunASRStreamingEngine
+            from core.streaming_transcriber import StreamingTranscriber
+            self._stt_engine = FunASRStreamingEngine(config.stt)
+            self._stream_transcriber = StreamingTranscriber(config.stt.streaming)
+            self._streaming_mode = True
+            logger.info("使用流式转写模式 (FunASR streaming)")
+        elif stt_engine_type == 'funasr':
+            # 分段模式：FunASR 非流式引擎 + VAD分段转写器
             from core.stt_funasr import FunASREngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
             self._stt_engine = FunASREngine(config.stt)
+            self._stream_transcriber = VADSegmentTranscriber(
+                config.realtime, self._stt_engine, self._on_realtime_segment
+            )
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (FunASR)")
         else:
+            # faster-whisper：只有分段模式
             from core.stt_engine import STTEngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
             self._stt_engine = STTEngine(config.stt)
+            self._stream_transcriber = VADSegmentTranscriber(
+                config.realtime, self._stt_engine, self._on_realtime_segment
+            )
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (faster-whisper)")
 
         self._recorder = AudioRecorder(config.audio)
         self._silence_detector = SilenceDetector(config.audio, self._on_silence_timeout,
                                                    on_rms_update=self._on_rms_update)
         self._injector = TextInjector(config.inject)
         self._sound_player = SoundPlayer(config.sound)
-        self._stream_transcriber = StreamTranscriber(
-            config.realtime, self._stt_engine, self._on_realtime_segment
-        )
-        self._rt_audio_queue = None
+        
+        # 流式模式音频队列（由 engine.py 创建，应用 max_queue_size）
+        max_queue_size = getattr(config.stt.streaming, 'max_queue_size', 300) if self._streaming_mode else 300
+        self._rt_audio_queue = None  # 在 _start_streaming 时创建
+        self._rt_max_queue_size = max_queue_size
 
         # 启动静音检测消费者线程
         self._silence_detector.start(self._recorder.get_buffer_queue())
@@ -203,9 +227,16 @@ class CoreEngine:
         if self.transition(EngineState.STREAMING):
             logger.info("开始实时转写")
             try:
-                self._rt_audio_queue = queue_mod.Queue(maxsize=300)
+                self._rt_audio_queue = queue_mod.Queue(maxsize=self._rt_max_queue_size)
                 self._recorder.start(self._rt_audio_queue)
-                self._stream_transcriber.start(self._rt_audio_queue)
+                
+                if self._streaming_mode:
+                    # 流式模式：传入引擎和回调
+                    self._stream_transcriber.start(self._rt_audio_queue, self._stt_engine, self._on_realtime_segment)
+                else:
+                    # VAD分段模式：只传入队列（引擎已在构造时传入）
+                    self._stream_transcriber.start(self._rt_audio_queue)
+                
                 self._sound_player.play("start")
                 self._events.publish(EngineEvent.RECORDING_STARTED)
             except Exception as e:
