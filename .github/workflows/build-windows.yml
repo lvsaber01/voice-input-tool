@@ -28,17 +28,15 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements_windows.txt
     
-    - name: Build editdistance wheel (FunASR dependency)
+    - name: Install FunASR dependencies
+      shell: cmd
       run: |
-        echo "Building editdistance wheel with VC++..."
-        pip wheel editdistance --wheel-dir wheels --no-deps
-        pip install wheels/*.whl
-      continue-on-error: true  # 如果失败，继续（只打包 faster-whisper）
-    
-    - name: Install FunASR (optional)
-      run: |
+        echo Installing FunASR dependencies...
+        pip install editdistance
         pip install funasr modelscope
-      continue-on-error: true
+        echo Verifying FunASR import...
+        python -c "from funasr import AutoModel; print('FunASR import OK')"
+        python -c "from core.stt_funasr import FunASREngine; print('FunASREngine import OK')"
     
     - name: Create placeholder icon
       shell: cmd
