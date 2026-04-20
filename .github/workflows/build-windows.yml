@@ -87,5 +87,7 @@ jobs:
         7z x VoiceInputTool-Windows.zip -o.
         cd VoiceInputTool
         echo Testing exe startup...
-        start /wait VoiceInputTool.exe
+        start VoiceInputTool.exe
+        timeout /t 5 /nobreak >nul
+        taskkill /im VoiceInputTool.exe /f 2>nul
         echo Test complete
