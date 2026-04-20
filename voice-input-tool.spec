@@ -69,13 +69,10 @@ hiddenimports = [
     'huggingface_hub.file_download',
     'huggingface_hub.repository',
     
-    # platform_adapter 动态导入
+    # platform_adapter 动态导入（仅 Windows）
     'platform_adapter',
     'platform_adapter.hotkey_windows',
-    'platform_adapter.hotkey_macos',
     'platform_adapter.clipboard_windows',
-    'platform_adapter.clipboard_macos',
-    'platform_adapter.key_simulator',
 ]
 
 # FunASR 引擎（可选）
@@ -105,17 +102,8 @@ if sys.platform == 'win32':
         'ctypes',
         'ctypes.wintypes',
     ])
-else:  # macOS
-    hiddenimports.extend([
-        'pynput',
-        'pynput.keyboard',
-        'pynput.keyboard._darwin',
-        'pynput.mouse',
-        'pynput.mouse._darwin',
-        'objc',
-        'Foundation',
-        'AppKit',
-    ])
+# macOS hiddenimports 已移除（仅打包 Windows 版）
+# 如需 macOS 版本请使用独立 spec 文件
 
 # ========== datas（数据文件） ==========
 
@@ -155,7 +143,19 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=['build/hooks'],
     runtime_hooks=['build/hooks/runtime_hook.py'],
-    excludes=[],  # 排除不需要的包
+    excludes=[
+        # 测试框架
+        'pytest', 'unittest', 'doctest',
+        # 不需要的库
+        'tkinter', 'matplotlib', 'scipy', 'pandas',
+        'IPython', 'jupyter', 'notebook',
+        # macOS 相关
+        'pynput', 'objc', 'Foundation', 'AppKit',
+        # numpy 测试
+        'numpy.tests', 'numpy.distutils', 'numpy.doc',
+        # 其他
+        'setuptools', 'pip', 'wheel',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

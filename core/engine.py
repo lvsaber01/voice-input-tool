@@ -402,11 +402,10 @@ class CoreEngine:
             if self._tray:
                 self._tray.set_state(EngineState.LOADING)
 
-            success = self._stt_engine.load_model()
-
             with self._state_lock:
                 if self._state != EngineState.LOADING:
                     return
+                success, error_msg = self._stt_engine.load_model()
                 if success:
                     logger.info("模型加载完成")
                     self._transition_locked(EngineState.IDLE)
@@ -414,11 +413,12 @@ class CoreEngine:
                         self._tray.set_state(EngineState.IDLE)
                         self._tray.show_notification("就绪", "语音输入工具已启动")
                 else:
-                    logger.error("模型加载失败")
+                    logger.error("模型加载失败: %s", error_msg)
                     self._transition_locked(EngineState.ERROR)
                     if self._tray:
                         self._tray.set_state(EngineState.ERROR)
-                        self._tray.show_notification("错误", "模型加载失败，请检查模型文件")
+                        self._tray.show_notification("错误",
+                            f"模型加载失败: {error_msg}\n\n日志目录: logs/")
 
         t = threading.Thread(target=_load, name="model-loader", daemon=True)
         t.start()

@@ -26,23 +26,20 @@ def setup_paths():
         # 设置工作目录为 exe 目录（便于读取 config.yaml）
         os.chdir(exe_dir)
         
-        # 用户数据目录
-        user_data_dir = get_user_data_dir()
-        os.makedirs(user_data_dir, exist_ok=True)
+        # 用户数据目录（exe同级目录，方便查找）
+        os.makedirs(exe_dir, exist_ok=True)
         
         # 导出环境变量供其他模块使用
         os.environ['VOICE_INPUT_TOOL_EXE_DIR'] = exe_dir
-        os.environ['VOICE_INPUT_TOOL_USER_DATA'] = user_data_dir
+        os.environ['VOICE_INPUT_TOOL_USER_DATA'] = exe_dir
         
-        # 模型目录：优先用户数据目录，其次 exe 目录
-        user_models_dir = os.path.join(user_data_dir, 'models')
-        exe_models_dir = os.path.join(exe_dir, 'models')
+        # 模型目录：exe同级 models/
+        models_dir = os.path.join(exe_dir, 'models')
+        os.makedirs(models_dir, exist_ok=True)
+        os.environ['VOICE_INPUT_TOOL_MODELS'] = models_dir
         
-        os.makedirs(user_models_dir, exist_ok=True)
-        os.environ['VOICE_INPUT_TOOL_MODELS'] = user_models_dir
-        
-        # 日志目录：用户数据目录
-        logs_dir = os.path.join(user_data_dir, 'logs')
+        # 日志目录：exe同级 logs/
+        logs_dir = os.path.join(exe_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
         os.environ['VOICE_INPUT_TOOL_LOGS'] = logs_dir
 

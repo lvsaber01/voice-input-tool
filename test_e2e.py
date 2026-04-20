@@ -77,7 +77,7 @@ def test_stt_engine():
 
     # 加载模型
     logger.info("加载模型...")
-    ok = engine.load_model()
+    ok, _ = engine.load_model()
     assert ok, "模型加载失败！"
     logger.info("✅ 模型加载成功")
 
@@ -175,7 +175,7 @@ def test_stream_transcriber():
 
     # 加载 STT
     stt = STTEngine(STTConfig(model_size='small', model_path='./models/'))
-    ok = stt.load_model()
+    ok, _ = stt.load_model()
     assert ok, "模型加载失败"
 
     # 收集转写结果
@@ -326,7 +326,7 @@ def test_batch_mode_simulation():
 
     # 加载 STT
     stt = STTEngine(STTConfig(model_size='small', model_path='./models/'))
-    ok = stt.load_model()
+    ok, _ = stt.load_model()
     assert ok
 
     # 生成测试音频

@@ -29,7 +29,7 @@ class FunASREngine:
         self._current_future: Optional[Future] = None
         self._lock = threading.Lock()
 
-    def load_model(self) -> bool:
+    def load_model(self) -> tuple[bool, str]:
         """加载 FunASR Paraformer 模型"""
         try:
             from funasr import AutoModel
@@ -44,13 +44,14 @@ class FunASREngine:
                 disable_update=True,
             )
             logger.info("FunASR 模型加载完成")
-            return True
+            return True, ''
         except ImportError:
             logger.error("funasr 未安装。请运行: pip install funasr modelscope")
-            return False
+            return False, 'funasr 未安装，请运行: pip install funasr modelscope'
         except Exception as e:
-            logger.error("FunASR 模型加载失败: %s", e)
-            return False
+            error_msg = str(e)
+            logger.error("FunASR 模型加载失败: %s", error_msg)
+            return False, error_msg
 
     def transcribe_async(self, audio: np.ndarray, callback):
         """异步转写：提交到线程池，完成后回调 callback(text, language, duration_ms, error)"""

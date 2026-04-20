@@ -33,11 +33,11 @@ class STTEngine:
         self._current_future: Optional[Future] = None
         self._lock = threading.Lock()
 
-    def load_model(self) -> bool:
+    def load_model(self) -> tuple[bool, str]:
         """加载 faster-whisper 模型（耗时操作）。
 
         Returns:
-            True=成功, False=失败
+            (True, '') 成功, (False, '错误信息') 失败
         """
         try:
             from faster_whisper import WhisperModel
@@ -68,10 +68,11 @@ class STTEngine:
                 compute_type=compute_type,
             )
             logger.info("模型加载完成")
-            return True
+            return True, ''
         except Exception as e:
-            logger.error("模型加载失败: %s", e)
-            return False
+            error_msg = str(e)
+            logger.error("模型加载失败: %s", error_msg)
+            return False, error_msg
 
     def transcribe_async(self, audio: np.ndarray, callback):
         """异步转写：提交到线程池，完成后回调 callback(text, language, duration_ms, error)"""
