@@ -75,7 +75,7 @@ hiddenimports = [
     'platform_adapter.clipboard_windows',
 ]
 
-# FunASR 引擎（可选）
+# FunASR 引擎（可选，通过 hook-funasr.py 自动收集数据文件）
 funasr_imports = [
     'funasr',
     'funasr.auto',
@@ -83,14 +83,11 @@ funasr_imports = [
     'modelscope',
 ]
 
-# 检查 FunASR 是否可用，收集其数据文件
+# 检查 FunASR 是否可用
 try:
     import funasr
     hiddenimports.extend(funasr_imports)
-    # 收集 FunASR 包的所有非 Python 文件（包括 version.txt 等）
-    funasr_pkg_dir = os.path.dirname(funasr.__file__)
-    datas.append((funasr_pkg_dir, 'funasr'))
-    print(f"[INFO] FunASR detected, adding hiddenimports + datas from {funasr_pkg_dir}")
+    print("[INFO] FunASR detected, adding hiddenimports (data files via hook)")
 except ImportError:
     print("[INFO] FunASR not available, skipping")
 
