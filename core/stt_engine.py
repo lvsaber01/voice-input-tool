@@ -40,6 +40,12 @@ class STTEngine:
             (True, '') 成功, (False, '错误信息') 失败
         """
         try:
+            # 设置 HuggingFace 镜像（解决中国用户访问超时问题）
+            hf_endpoint = getattr(self.config, 'hf_endpoint', '')
+            if hf_endpoint:
+                os.environ['HF_ENDPOINT'] = hf_endpoint
+                logger.info("使用 HuggingFace 镜像: %s", hf_endpoint)
+
             from faster_whisper import WhisperModel
 
             device = self._detect_device()

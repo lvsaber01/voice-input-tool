@@ -32,6 +32,12 @@ class FunASREngine:
     def load_model(self) -> tuple[bool, str]:
         """加载 FunASR Paraformer 模型"""
         try:
+            # 设置 ModelScope 镜像（可选）
+            modelscope_endpoint = getattr(self.config, 'modelscope_endpoint', '')
+            if modelscope_endpoint:
+                os.environ['MODELSCOPE_ENDPOINT'] = modelscope_endpoint
+                logger.info("使用 ModelScope 镜像: %s", modelscope_endpoint)
+
             from funasr import AutoModel
 
             # 从配置获取模型名称

@@ -263,7 +263,12 @@ class ConfigWebServer:
         self._config_url = f"http://127.0.0.1:{config.web.port}?token={self._token}"
         self._http_server: Optional[HTTPServer] = None
         self._server_thread: Optional[threading.Thread] = None
-        self._config_path = str(Path(__file__).parent.parent / "config.yaml")
+        # 配置路径：打包后使用 exe 同级目录，开发环境使用项目根目录
+        user_data = os.environ.get('VOICE_INPUT_TOOL_USER_DATA', '')
+        if user_data:
+            self._config_path = str(Path(user_data) / "config.yaml")
+        else:
+            self._config_path = str(Path(__file__).parent.parent / "config.yaml")
 
     def start(self):
         """启动 Web 服务（后台 daemon 线程）"""

@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 4
+CURRENT_CONFIG_VERSION = 5
 
 
 # ============================================================
@@ -41,6 +41,9 @@ class STTConfig:
     device: str = "auto"             # auto | cpu | cuda
     compute_type: str = "int8"
     beam_size: int = 5
+    # 镜像配置（中国用户）
+    hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像
+    modelscope_endpoint: str = ""  # ModelScope 镜像（可选）
 
     def __post_init__(self):
         valid_engines = ("faster_whisper", "funasr")
@@ -278,11 +281,28 @@ def _migrate_v3_to_v4(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v4_to_v5(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v4 → v5: 添加镜像配置
+    
+    - stt.hf_endpoint: 默认 hf-mirror.com（解决中国用户 HuggingFace 超时）
+    - stt.modelscope_endpoint: 默认空（可选）
+    """
+    raw["config_version"] = 5
+    stt = raw.get("stt", {})
+    if "hf_endpoint" not in stt:
+        stt["hf_endpoint"] = "https://hf-mirror.com"
+    if "modelscope_endpoint" not in stt:
+        stt["modelscope_endpoint"] = ""
+    raw["stt"] = stt
+    return raw
+
+
 # 迁移注册表: version → migration_function
 CONFIG_MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
+    4: _migrate_v4_to_v5,
 }
 
 
