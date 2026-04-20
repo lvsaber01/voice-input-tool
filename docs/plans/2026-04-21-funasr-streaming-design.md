@@ -160,6 +160,8 @@ class StreamingTranscriber:
     线程模型：
     - _run() 在独立线程中运行
     - _inject_worker() 在另一个线程中运行，解耦回调阻塞
+    
+    注意：buffer 使用实例变量 self._buffer，确保 stop() 可访问剩余数据。
     """
     
     def __init__(self, config):
@@ -167,13 +169,15 @@ class StreamingTranscriber:
         self._running = False
         self._thread = None
         self._inject_thread = None
-        self._inject_queue = queue.Queue(maxsize=10)  # 解耦注入
+        self._inject_queue = queue.Queue(maxsize=20)  # 解耦注入，容量提升
+        self._buffer = []  # 实例变量，确保 stop() 可访问
+        self._buffer_lock = threading.Lock()  # 保护 buffer
     
     def start(self, audio_queue: queue.Queue, engine: StreamingEngineProtocol, on_segment):
         """启动流式转写
         
         Args:
-            audio_queue: AudioRecorder 的输出队列
+            audio_queue: AudioRecorder 的输出队列（maxsize 由创建者设置）
             engine: 流式引擎实例（实现 StreamingEngineProtocol）
             on_segment: 文本输出回调
         """
@@ -181,6 +185,8 @@ class StreamingTranscriber:
         self._engine = engine
         self._on_segment = on_segment
         self._chunk_samples = engine.get_chunk_samples()  # 从引擎获取
+        with self._buffer_lock:
+            self._buffer = []  # 重置
         self._running = True
         
         # 启动转写线程
@@ -196,9 +202,14 @@ class StreamingTranscriber:
         self._running = False
         if self._thread:
             self._thread.join(timeout=5)
-        # 处理剩余 buffer
-        if self._buffer:
-            self._flush_buffer(is_final=True)
+        # 处理剩余 buffer（线程安全）
+        with self._buffer_lock:
+            if self._buffer:
+                audio_chunk = np.array(self._buffer)
+                self._buffer = []
+                text = self._engine.transcribe_chunk(audio_chunk, is_final=True)
+                if text:
+                    self._put_inject(text)
         # 等待注入队列清空
         self._inject_queue.put(None)  # sentinel
         if self._inject_thread:
@@ -216,49 +227,51 @@ class StreamingTranscriber:
                 logger.error("注入回调异常: %s", e)
     
     def _run(self):
-        """主循环：累积够 chunk_samples 就处理"""
-        buffer = []
+        """主循环：累积够 chunk_samples 就处理
+        
+        注意：buffer 使用 self._buffer 实例变量，而非局部变量，
+        确保 stop() 能正确处理剩余音频。
+        """
         while self._running:
             try:
                 chunk = self._audio_queue.get(timeout=0.5)
-                buffer.extend(chunk)
+                with self._buffer_lock:
+                    self._buffer.extend(chunk)
             except queue.Empty:
-                # 超时时如果 buffer 非空，也触发一次处理（避免延迟累积）
-                if buffer:
-                    self._flush_buffer(is_final=False)
+                # 超时时如果 buffer 非空，也触发一次处理
+                with self._buffer_lock:
+                    if len(self._buffer) >= self._chunk_samples:
+                        self._flush_chunk()
                 continue
             
             # 累积够 chunk_samples 就处理
-            while len(buffer) >= self._chunk_samples:
-                audio_chunk = np.array(buffer[:self._chunk_samples])
-                buffer = buffer[self._chunk_samples:]
-                
-                text = self._engine.transcribe_chunk(audio_chunk, is_final=False)
-                if text:
-                    self._put_inject(text)
-        
-        # 结束时处理剩余
-        if buffer:
-            text = self._engine.transcribe_chunk(np.array(buffer), is_final=True)
-            if text:
-                self._put_inject(text)
+            with self._buffer_lock:
+                while len(self._buffer) >= self._chunk_samples:
+                    self._flush_chunk()
     
-    def _flush_buffer(self, is_final: bool):
-        """处理当前 buffer"""
-        if not self._buffer:
-            return
-        audio_chunk = np.array(self._buffer)
-        self._buffer = []
-        text = self._engine.transcribe_chunk(audio_chunk, is_final=is_final)
+    def _flush_chunk(self):
+        """处理一个 chunk（调用前需持有 _buffer_lock）"""
+        audio_chunk = np.array(self._buffer[:self._chunk_samples])
+        self._buffer = self._buffer[self._chunk_samples:]
+        text = self._engine.transcribe_chunk(audio_chunk, is_final=False)
         if text:
             self._put_inject(text)
     
     def _put_inject(self, text: str):
-        """放入注入队列"""
+        """放入注入队列（非阻塞，满时丢弃最旧的）
+        
+        使用 drop_old 策略，丢弃旧文本而非新文本。
+        """
         try:
+            if self._inject_queue.full():
+                # 队列满时，先取出一个旧的再放入新的
+                try:
+                    self._inject_queue.get_nowait()
+                except queue.Empty:
+                    pass
             self._inject_queue.put_nowait(text)
-        except queue.Full:
-            logger.warning("注入队列已满，丢弃文本")
+        except Exception as e:
+            logger.warning("注入队列异常: %s", e)
 ```
 
 ---
@@ -301,6 +314,7 @@ stt:
 ### Phase 2: 配置与集成（预计 1小时）
 1. 更新 `config.py` 新增 StreamingConfig
 2. 更新 `engine.py` 引擎选择逻辑
+3. 创建音频队列时应用 max_queue_size
 
 ### Phase 3: 测试验证（预计 1小时）
 1. 在 Windows 开发机测试流式模式
@@ -329,17 +343,34 @@ FunASR 流式模型要求 16kHz：
 
 ---
 
-## 8. 风险与降级
+## 8. 依赖说明
+
+**Python 依赖版本**：
+- `funasr >= 1.0`（支持流式 API）
+- `numpy >= 1.20`
+- `threading`（标准库）
+- `queue`（标准库）
+
+**audio_queue 契约**：
+- 创建者：CoreEngine 在进入 STREAMING 状态时创建
+- maxsize：由 `StreamingConfig.max_queue_size` 设置（默认 300）
+- 数据格式：numpy.ndarray，16kHz 单声道 float32
+- 消费者：StreamingTranscriber
+
+---
+
+## 9. 风险与降级
 
 | 风险 | 应对 |
 |------|------|
 | 流式模型加载失败 | 自动降级到 VAD 分段模式 |
 | chunk 处理超时 | 跳过当前 chunk，继续下一个 |
 | 音频队列阻塞 | 设置队列上限，丢弃旧数据 |
+| 注入队列阻塞 | drop_old 策略，丢弃旧文本 |
 
 ---
 
-## 9. 验收标准
+## 10. 验收标准
 
 - [ ] 流式模式启动成功（paraformer-zh-streaming 模型加载）
 - [ ] 600ms chunk 持续输出文本
@@ -347,11 +378,15 @@ FunASR 流式模型要求 16kHz：
 - [ ] 配置 `streaming.enabled=false` 时降级到 VAD 分段
 - [ ] faster-whisper 模式仍使用 VAD 分段
 - [ ] cache 状态线程安全（Lock 保护）
+- [ ] buffer 状态线程安全（_buffer_lock 保护）
 - [ ] transcribe_chunk 异常不中断循环
 - [ ] queue.get 超时时 buffer 正确处理
 - [ ] 模型名与 streaming.enabled 交叉验证
+- [ ] stop() 正确处理剩余音频（self._buffer 可访问）
 
-## 10. 配置验证
+---
+
+## 11. 配置验证
 
 启动时校验配置一致性：
 ```python
@@ -368,3 +403,4 @@ def validate_streaming_config(config):
 
 *设计确认时间: 2026-04-21 00:41*
 *v2 修订时间: 2026-04-21 00:50（评审第一轮问题修复）*
+*v3 修订时间: 2026-04-21 00:52（评审第二轮问题修复：buffer一致性问题）*
