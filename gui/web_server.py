@@ -71,6 +71,14 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._handle_hotkey_test()
         elif path == "/api/sound/test":
             self._handle_sound_test()
+        elif path == "/api/record/start":
+            self._handle_record_start()
+        elif path == "/api/record/stop":
+            self._handle_record_stop()
+        elif path == "/api/record/toggle":
+            self._handle_record_toggle()
+        elif path == "/api/test/transcribe":
+            self._handle_test_transcribe()
         else:
             self._send_error_json(404, "未找到")
 
@@ -165,6 +173,56 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "message": "提示音已播放"})
         except Exception as e:
             self._send_error_json(500, f"播放提示音失败: {e}")
+
+    def _handle_record_start(self):
+        """POST /api/record/start — 开始录音"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            result = self._server_ctx._record_start()
+            self._send_json(200, result)
+        except Exception as e:
+            self._send_error_json(500, f"开始录音失败: {e}")
+
+    def _handle_record_stop(self):
+        """POST /api/record/stop — 停止录音并转写"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            result = self._server_ctx._record_stop()
+            self._send_json(200, result)
+        except Exception as e:
+            self._send_error_json(500, f"停止录音失败: {e}")
+
+    def _handle_record_toggle(self):
+        """POST /api/record/toggle — 切换录音状态"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            result = self._server_ctx._record_toggle()
+            self._send_json(200, result)
+        except Exception as e:
+            self._send_error_json(500, f"切换录音失败: {e}")
+
+    def _handle_test_transcribe(self):
+        """POST /api/test/transcribe — 用合成音频测试 STT（自动录音→停止→返回结果）
+
+        请求体: {"duration": 3}  录音秒数，默认3秒
+        """
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            body = self._read_body()
+            data = json.loads(body) if body else {}
+            duration = int(data.get("duration", 3))
+            result = self._server_ctx._test_transcribe(duration)
+            self._send_json(200, result)
+        except Exception as e:
+            self._send_error_json(500, f"转写测试失败: {e}")
 
     # ============================================================
     # 工具方法
@@ -371,6 +429,102 @@ class ConfigWebServer:
         """播放测试提示音"""
         if self._engine and self._engine._sound_player:
             self._engine._sound_player.play("start")
+
+    def _record_start(self) -> dict:
+        """开始录音"""
+        if not self._engine:
+            return {"ok": False, "error": "引擎未初始化"}
+        state = self._engine.state
+        if state.name == "RECORDING":
+            return {"ok": False, "error": "已在录音中", "state": state.name}
+        if state.name == "PROCESSING":
+            return {"ok": False, "error": "正在处理中", "state": state.name}
+        if state.name == "LOADING":
+            return {"ok": False, "error": "模型加载中", "state": state.name}
+        if state.name == "ERROR":
+            return {"ok": False, "error": "引擎异常", "state": state.name}
+        self._engine.on_hotkey_start()
+        return {"ok": True, "state": self._engine.state.name, "message": "开始录音"}
+
+    def _record_stop(self) -> dict:
+        """停止录音并转写"""
+        if not self._engine:
+            return {"ok": False, "error": "引擎未初始化"}
+        state = self._engine.state
+        if state.name != "RECORDING":
+            return {"ok": False, "error": "未在录音中", "state": state.name}
+        self._engine.on_hotkey_stop()
+        return {"ok": True, "state": self._engine.state.name, "message": "停止录音，正在识别..."}
+
+    def _record_toggle(self) -> dict:
+        """切换录音状态"""
+        if not self._engine:
+            return {"ok": False, "error": "引擎未初始化"}
+        self._engine.on_hotkey_toggle()
+        return {"ok": True, "state": self._engine.state.name}
+
+    def _test_transcribe(self, duration: int) -> dict:
+        """自动录音→停止→等待转写结果（用于自动化测试）
+
+        返回: {"ok": True, "text": "...", "language": "zh", "duration_ms": 1500}
+        """
+        import time
+        if not self._engine:
+            return {"ok": False, "error": "引擎未初始化"}
+
+        # 检查模型是否已加载
+        if self._engine.state.name == "LOADING":
+            return {"ok": False, "error": "模型加载中，请稍后"}
+        if self._engine.state.name == "ERROR":
+            return {"ok": False, "error": "引擎异常，请重启"}
+
+        # 准备收集结果
+        result_data = {"done": threading.Event()}
+        original_callback = self._engine._on_stt_result
+
+        def capture_callback(text, language, duration_ms, error):
+            result_data["text"] = text
+            result_data["language"] = language
+            result_data["duration_ms"] = duration_ms
+            result_data["error"] = str(error) if error else None
+            result_data["done"].set()
+            if original_callback:
+                original_callback(text, language, duration_ms, error)
+
+        self._engine._on_stt_result = capture_callback
+
+        # 开始录音
+        if self._engine.state.name == "IDLE":
+            self._engine.on_hotkey_start()
+            if self._engine.state.name != "RECORDING":
+                self._engine._on_stt_result = original_callback
+                return {"ok": False, "error": f"无法开始录音，状态: {self._engine.state.name}"}
+        elif self._engine.state.name != "RECORDING":
+            self._engine._on_stt_result = original_callback
+            return {"ok": False, "error": f"当前状态不可录音: {self._engine.state.name}"}
+
+        # 等待录音
+        time.sleep(duration)
+
+        # 停止录音
+        self._engine.on_hotkey_stop()
+
+        # 等待转写结果（最多30秒）
+        if not result_data["done"].wait(timeout=30):
+            self._engine._on_stt_result = original_callback
+            return {"ok": False, "error": "转写超时（30秒）", "state": self._engine.state.name}
+
+        self._engine._on_stt_result = original_callback
+
+        if result_data.get("error"):
+            return {"ok": False, "error": result_data["error"], "state": self._engine.state.name}
+        return {
+            "ok": True,
+            "text": result_data.get("text", ""),
+            "language": result_data.get("language"),
+            "duration_ms": result_data.get("duration_ms"),
+            "state": self._engine.state.name,
+        }
 
     @staticmethod
     def _deep_merge(base: dict, override: dict):
