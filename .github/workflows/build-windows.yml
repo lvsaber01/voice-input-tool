@@ -80,7 +80,7 @@ jobs:
         # 复制配置和依赖
         cp requirements.txt requirements_windows.txt config.example.yaml dist/VoiceInputTool-Source/
         [ -f requirements_macos.txt ] && cp requirements_macos.txt dist/VoiceInputTool-Source/
-        cp -r models/ dist/VoiceInputTool-Source/
+        cp -r models/ dist/VoiceInputTool-Source/ 2>/dev/null || mkdir -p dist/VoiceInputTool-Source/models && cp models/README.md dist/VoiceInputTool-Source/models/ 2>/dev/null || true
         # 复制启动脚本
         cp start.bat start.sh dist/VoiceInputTool-Source/
         # 复制 spec 和 hooks（供手动 exe 打包用）
