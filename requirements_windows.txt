@@ -1,2 +1,2 @@
-# Windows 额外依赖
+# Windows extra dependencies
 keyboard>=0.13.5

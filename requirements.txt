@@ -1,5 +1,5 @@
-# 跨平台基础依赖
-# Python: >=3.11,<3.14
+# Cross-platform dependencies
+# Requires: Python >=3.11, <3.14
 sounddevice>=0.4.6
 numpy>=1.24.0,<2.0
 faster-whisper>=1.1.0
