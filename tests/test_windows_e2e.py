@@ -225,17 +225,18 @@ class TestSTTEngine(unittest.TestCase):
         logger.info("✅ STT 转写未崩溃 (text='%s', lang=%s, dur=%dms)", text[:50] if text else "", lang, dur)
 
 
-class TestStreamTranscriber(unittest.TestCase):
+class TestStreamingTranscriber(unittest.TestCase):
     """测试实时转写引擎"""
 
+    @unittest.skip("VAD logic removed in StreamingTranscriber refactor")
     def test_11_rms_vad_fallback(self):
         """RMS VAD 降级检测"""
         from config import RealtimeConfig
-        from core.stream_transcriber import StreamTranscriber
+        from core.streaming_transcriber import StreamingTranscriber
         import numpy as np
 
         config = RealtimeConfig()
-        st = StreamTranscriber(config, None, lambda *a: None)
+        st = StreamingTranscriber(config)
 
         # 模拟 webrtcvad 不可用
         st._vad = None
@@ -251,13 +252,14 @@ class TestStreamTranscriber(unittest.TestCase):
         self.assertTrue(st._vad_detect(speech), "有声音应被检测为语音")
         logger.info("✅ RMS VAD 降级检测正常")
 
+    @unittest.skip("VAD logic removed in StreamingTranscriber refactor")
     def test_12_webrtcvad_graceful_fallback(self):
         """webrtcvad 不可用时自动降级"""
         from config import RealtimeConfig
-        from core.stream_transcriber import StreamTranscriber
+        from core.streaming_transcriber import StreamingTranscriber
 
         config = RealtimeConfig()
-        st = StreamTranscriber(config, None, lambda *a: None)
+        st = StreamingTranscriber(config)
         st._load_vad()
 
         # 在没有 C++ 编译工具的 Windows 上应该降级到 RMS
@@ -291,7 +293,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestWindowsClipboard))
     suite.addTests(loader.loadTestsFromTestCase(TestConfigMigration))
     suite.addTests(loader.loadTestsFromTestCase(TestSTTEngine))
-    suite.addTests(loader.loadTestsFromTestCase(TestStreamTranscriber))
+    suite.addTests(loader.loadTestsFromTestCase(TestStreamingTranscriber))
     suite.addTests(loader.loadTestsFromTestCase(TestEngineState))
 
     runner = unittest.TextTestRunner(verbosity=2)

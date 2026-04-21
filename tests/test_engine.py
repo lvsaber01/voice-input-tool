@@ -15,7 +15,7 @@ class TestEngineTransitions(unittest.TestCase):
              patch("core.stt_engine.STTEngine"), \
              patch("core.injector.TextInjector"), \
              patch("core.sound_player.SoundPlayer"), \
-             patch("core.stream_transcriber.StreamTranscriber"):
+             patch("core.streaming_transcriber.StreamingTranscriber"):
             config = MagicMock()
             config.audio.max_duration = 0
             config.realtime = MagicMock()

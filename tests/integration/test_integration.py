@@ -265,8 +265,8 @@ class TestEnginePipeline(unittest.TestCase):
             mock_impl.inject.return_value = True
             mock_cci.return_value = mock_impl
 
-            # StreamTranscriber is imported inside engine.py: from core.stream_transcriber import ...
-            with patch('core.stream_transcriber.StreamTranscriber') as mock_st_class:
+            # StreamingTranscriber is imported inside engine.py: from core.streaming_transcriber import ...
+            with patch('core.streaming_transcriber.StreamingTranscriber') as mock_st_class:
                 mock_st = MagicMock()
                 mock_st.start = MagicMock()
                 mock_st.stop = MagicMock()
