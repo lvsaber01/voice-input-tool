@@ -52,6 +52,7 @@ class STTEngine:
             compute_type = self._detect_compute_type(device)
             # 拼接完整模型路径: model_path + model_size
             model_path = self.config.model_path
+            download_root = None
             # 如果 model_path 是默认值（目录），直接用 model_size 让 faster-whisper 自动找缓存
             # 只有用户指定了实际模型目录时才拼接
             if os.path.isdir(os.path.join(model_path, 'model.bin')) or \
@@ -63,8 +64,12 @@ class STTEngine:
                 # 用户指定了非默认路径
                 model_path = os.path.join(model_path, self.config.model_size)
             else:
-                # 默认路径，让 faster-whisper 自动从缓存或 HuggingFace 加载
+                # 默认路径：强制下载到本地 models/ 目录
                 model_path = self.config.model_size
+                models_dir = os.environ.get('VOICE_INPUT_TOOL_MODELS', os.path.abspath('./models'))
+                os.makedirs(models_dir, exist_ok=True)
+                download_root = models_dir
+                logger.info("模型将下载到: %s", models_dir)
             logger.info("加载模型: %s (path=%s), device=%s, compute_type=%s",
                         self.config.model_size, model_path, device, compute_type)
 
@@ -72,6 +77,7 @@ class STTEngine:
                 model_size_or_path=model_path,
                 device=device,
                 compute_type=compute_type,
+                download_root=download_root,
             )
             logger.info("模型加载完成")
             return True, ''
