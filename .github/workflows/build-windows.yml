@@ -27,16 +27,12 @@ jobs:
         pip install pyinstaller
         pip install -r requirements.txt
         pip install -r requirements_windows.txt
+        pip install "ctranslate2>=4.0,<5.0" "faster-whisper>=1.1.0"
     
-    - name: Install FunASR dependencies
-      shell: cmd
+    - name: Verify faster-whisper
       run: |
-        echo Installing FunASR dependencies...
-        pip install editdistance
-        pip install funasr modelscope
-        echo Verifying FunASR import...
-        python -c "from funasr import AutoModel; print('FunASR import OK')"
-        python -c "from core.stt_funasr import FunASREngine; print('FunASREngine import OK')"
+        python -c "from faster_whisper import WhisperModel; print('faster-whisper OK')"
+        python -c "import ctranslate2; print(f'ctranslate2 {ctranslate2.__version__}')"
     
     - name: Create placeholder icon
       shell: cmd

@@ -75,21 +75,8 @@ hiddenimports = [
     'platform_adapter.clipboard_windows',
 ]
 
-# FunASR 引擎（可选，通过 hook-funasr.py 自动收集数据文件）
-funasr_imports = [
-    'funasr',
-    'funasr.auto',
-    'funasr.models',
-    'modelscope',
-]
-
-# 检查 FunASR 是否可用
-try:
-    import funasr
-    hiddenimports.extend(funasr_imports)
-    print("[INFO] FunASR detected, adding hiddenimports (data files via hook)")
-except ImportError:
-    print("[INFO] FunASR not available, skipping")
+# FunASR 引擎 - 首版不打包（用户如需要可自行 pip install funasr modelscope）
+print("[INFO] FunASR not bundled - faster-whisper only")
 
 # Windows 特定依赖
 if sys.platform == 'win32':
