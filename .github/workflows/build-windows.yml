@@ -65,6 +65,37 @@ jobs:
         name: build-logs
         path: build/*.log
 
+  build-source:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Create source package
+      run: |
+        mkdir -p dist/VoiceInputTool-Source
+        # 复制源码
+        cp -r main.py config.py core/ gui/ platform_adapter/ dist/VoiceInputTool-Source/
+        # 复制配置和依赖
+        cp requirements.txt requirements_windows.txt config.example.yaml dist/VoiceInputTool-Source/
+        [ -f requirements_macos.txt ] && cp requirements_macos.txt dist/VoiceInputTool-Source/
+        cp -r models/ dist/VoiceInputTool-Source/
+        # 复制启动脚本
+        cp start.bat start.sh dist/VoiceInputTool-Source/
+        # 复制 spec 和 hooks（供手动 exe 打包用）
+        cp -r voice-input-tool.spec build/ dist/VoiceInputTool-Source/
+        # 打包
+        cd dist
+        zip -r VoiceInputTool-Source.zip VoiceInputTool-Source/
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: VoiceInputTool-Source
+        path: dist/VoiceInputTool-Source.zip
+        retention-days: 30
+
   test-windows:
     needs: build-windows
     runs-on: windows-latest
