@@ -72,7 +72,15 @@ class STTConfig:
         if self.engine == "faster_whisper":
             valid_sizes = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
             if self.model_size not in valid_sizes:
-                raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
+                if self.model_size in ("paraformer-zh", "paraformer-zh-streaming"):
+                    logger.info("model_size '%s' is FunASR-only, auto-switching to large-v3-turbo", self.model_size)
+                    self.model_size = "large-v3-turbo"
+                else:
+                    raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
+        elif self.engine == "funasr":
+            if self.model_size not in ("paraformer-zh", "paraformer-zh-streaming"):
+                logger.info("model_size '%s' is faster-whisper-only, auto-switching to paraformer-zh", self.model_size)
+                self.model_size = "paraformer-zh"
         if self.beam_size < 1:
             raise ValueError(f"stt.beam_size 必须 >= 1，当前: {self.beam_size}")
         

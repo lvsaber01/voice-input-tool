@@ -98,8 +98,10 @@ if errorlevel 1 (
         echo Installing FunASR (may take a few minutes)...
         where uv >nul 2>&1
         if errorlevel 1 (
+            .venv/scripts\python -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu -q
             .venv\Scripts\python -m pip install funasr modelscope -q
         ) else (
+            uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu -q
             uv pip install funasr modelscope -q
         )
         if errorlevel 1 (
