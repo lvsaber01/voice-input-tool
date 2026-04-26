@@ -128,7 +128,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=['build/hooks'],
+    hookspath=[],  # 不使用自定义 hooks（避免拉入 FunASR 依赖）
     runtime_hooks=['build/hooks/runtime_hook.py'],
     excludes=[
         # 测试框架
@@ -142,6 +142,18 @@ a = Analysis(
         'numpy.tests', 'numpy.distutils', 'numpy.doc',
         # 其他
         'setuptools', 'pip', 'wheel',
+        # FunASR 全家桶（不打包，按需源码安装）
+        'torch', 'torchaudio', 'torchvision',
+        'modelscope', 'funasr',
+        'sklearn', 'scikit-learn',
+        'numba', 'llvmlite',
+        'umap', 'hydra', 'omegaconf',
+        'jieba',
+        'librosa', 'soundfile',
+        'Crypto', 'Cryptodome',
+        'aliyunsdkcore', 'aliyunsdk',
+        # 其他大型不需要的
+        'tensorboard', 'sympy', 'pygments',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
