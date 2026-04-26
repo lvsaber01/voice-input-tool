@@ -52,7 +52,7 @@ class StreamingConfig:
 @dataclass
 class STTConfig:
     """语音识别引擎配置"""
-    engine: str = "faster_whisper"   # faster_whisper | funasr
+    engine: str = "auto"              # auto | faster_whisper | funasr | mlx_whisper
     model_size: str = "large-v3-turbo"
     model_path: str = "./models/"
     language: Optional[str] = None   # None=auto
@@ -66,10 +66,10 @@ class STTConfig:
     streaming: StreamingConfig = field(default_factory=StreamingConfig)
 
     def __post_init__(self):
-        valid_engines = ("faster_whisper", "funasr")
+        valid_engines = ("auto", "faster_whisper", "funasr", "mlx_whisper")
         if self.engine not in valid_engines:
             raise ValueError(f"stt.engine 无效值 '{self.engine}'，可选: {valid_engines}")
-        if self.engine == "faster_whisper":
+        if self.engine in ("faster_whisper", "auto", "mlx_whisper"):
             valid_sizes = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
             if self.model_size not in valid_sizes:
                 if self.model_size in ("paraformer-zh", "paraformer-zh-streaming"):
@@ -78,8 +78,10 @@ class STTConfig:
                 else:
                     raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
         elif self.engine == "funasr":
-            if self.model_size not in ("paraformer-zh", "paraformer-zh-streaming"):
-                logger.info("model_size '%s' is faster-whisper-only, auto-switching to paraformer-zh", self.model_size)
+            # FunASR 支持的模型列表（验证过的）
+            valid_funasr_sizes = ("paraformer-zh", "paraformer-zh-streaming", "paraformer-en", "SenseVoiceSmall")
+            if self.model_size not in valid_funasr_sizes:
+                logger.info("model_size '%s' 不支持，auto-switching to paraformer-zh", self.model_size)
                 self.model_size = "paraformer-zh"
         if self.beam_size < 1:
             raise ValueError(f"stt.beam_size 必须 >= 1，当前: {self.beam_size}")
@@ -91,6 +93,11 @@ class STTConfig:
         # 流式配置验证
         if self.streaming.enabled and self.engine != 'funasr':
             logger.warning("streaming.enabled=true 仅支持 FunASR，自动禁用")
+            self.streaming.enabled = False
+
+        # SenseVoice 不支持流式模式，自动禁用
+        if self.model_size == "SenseVoiceSmall" and self.streaming.enabled:
+            logger.warning("SenseVoiceSmall 不支持流式模式，已自动禁用 streaming")
             self.streaming.enabled = False
 
 

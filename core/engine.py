@@ -79,10 +79,22 @@ class CoreEngine:
         from core.sound_player import SoundPlayer
         
         # 根据配置选择 STT 引擎和转写模式
-        stt_engine_type = getattr(config.stt, 'engine', 'faster_whisper')
-        streaming_enabled = getattr(config.stt.streaming, 'enabled', False) if stt_engine_type == 'funasr' else False
-        
-        if streaming_enabled:
+        stt_engine_type = getattr(config.stt, 'engine', 'auto')
+
+        # auto 模式：macOS 选 mlx_whisper，其他选 faster_whisper
+        if stt_engine_type == 'auto':
+            import platform
+            if platform.system() == 'Darwin':
+                stt_engine_type = 'mlx_whisper'
+            else:
+                stt_engine_type = 'faster_whisper'
+            logger.info("auto 模式：选择 %s 引擎", stt_engine_type)
+
+        # streaming_enabled 对 mlx_whisper 和 funasr 都生效
+        streaming_enabled = getattr(config.stt.streaming, 'enabled', False) if \
+            stt_engine_type in ('funasr', 'mlx_whisper') else False
+
+        if streaming_enabled and stt_engine_type == 'funasr':
             # 流式模式：FunASR 流式引擎 + StreamingTranscriber
             from core.stt_funasr_streaming import FunASRStreamingEngine
             from core.streaming_transcriber import StreamingTranscriber
@@ -100,6 +112,16 @@ class CoreEngine:
             )
             self._streaming_mode = False
             logger.info("使用VAD分段转写模式 (FunASR)")
+        elif stt_engine_type == 'mlx_whisper':
+            # mlx-whisper：分段模式（VADSegmentTranscriber + MlxWhisperEngine）
+            from core.stt_mlx_whisper import MlxWhisperEngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = MlxWhisperEngine(config.stt)
+            self._stream_transcriber = VADSegmentTranscriber(
+                config.realtime, self._stt_engine, self._on_realtime_segment
+            )
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (mlx-whisper)")
         else:
             # faster-whisper：只有分段模式
             from core.stt_engine import STTEngine

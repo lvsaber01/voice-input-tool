@@ -12,6 +12,7 @@ import os
 import time
 import threading
 import logging
+import re
 from typing import Optional
 
 import numpy as np
@@ -119,12 +120,16 @@ class FunASRStreamingEngine:
                 if result and len(result) > 0:
                     text = result[0].get('text', '') or ''
                     if text:
+                        # FunASR 默认输出分词结果（词间有空格），去掉中文空格
+                        while re.search(r'([\u4e00-\u9fff])\s+([\u4e00-\u9fff])', text):
+                            text = re.sub(r'([\u4e00-\u9fff])\s+([\u4e00-\u9fff])', r'\1\2', text)
                         logger.debug("流式转写: '%s' (is_final=%s)", text[:30], is_final)
                     return text
                 return ''
                 
         except Exception as e:
-            logger.error("流式转写异常: %s", e)
+            import traceback
+            logger.error("流式转写异常: %s\n%s", e, traceback.format_exc())
             return ''  # 返回空字符串，不中断循环
     
     def reset(self):

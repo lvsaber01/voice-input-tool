@@ -116,5 +116,90 @@ class TestEngineSelectionLogic(unittest.TestCase):
         # 注意：这需要在实际代码中验证
 
 
+class TestSenseVoiceRegression(unittest.TestCase):
+    """SenseVoice 集成回归测试 — 确保不影响现有功能"""
+
+    def test_paraformer_still_default(self):
+        """回归：paraformer-zh 仍是默认模型"""
+        from config import STTConfig
+        cfg = STTConfig(engine="funasr")
+        self.assertEqual(cfg.model_size, "paraformer-zh")
+
+    def test_paraformer_load_model_unchanged(self):
+        """回归：Paraformer load_model 仍走原路径"""
+        from core.stt_funasr import FunASREngine
+        config = MagicMock()
+        config.model_size = "paraformer-zh"
+        config.modelscope_endpoint = ""
+        engine = FunASREngine(config)
+        self.assertFalse(engine._is_sensevoice)
+
+    def test_paraformer_transcribe_returns_zh(self):
+        """回归：Paraformer 转写仍返回 language='zh'"""
+        from core.stt_funasr import FunASREngine
+        config = MagicMock()
+        config.model_size = "paraformer-zh"
+        config.modelscope_endpoint = ""
+        engine = FunASREngine(config)
+        engine.model = MagicMock()
+        engine.model.generate = MagicMock(return_value=[{"text": "测试"}])
+        result = engine._do_transcribe(np.random.randn(16000).astype(np.float32))
+        self.assertEqual(result[1], "zh")  # language
+        self.assertFalse(engine._is_sensevoice)
+
+    def test_extract_text_still_works(self):
+        """回归：_extract_text 兼容旧格式"""
+        from core.stt_funasr import FunASREngine
+        # dict 格式（原 Paraformer 格式）
+        self.assertEqual(FunASREngine._extract_text([{"text": "你好"}]), "你好")
+        # 空结果
+        self.assertEqual(FunASREngine._extract_text([]), "")
+        self.assertEqual(FunASREngine._extract_text(None), "")
+
+    def test_normalize_chinese_spaces_still_works(self):
+        """回归：中文空格去除逻辑不变"""
+        from core.stt_funasr import FunASREngine
+        self.assertEqual(FunASREngine._normalize_chinese_spaces("你 好"), "你好")
+        self.assertEqual(FunASREngine._normalize_chinese_spaces("hello world"), "hello world")
+
+    def test_sensevoice_interface_compatible(self):
+        """回归：SenseVoice 返回值格式与 Paraformer 一致"""
+        from core.stt_funasr import FunASREngine
+        config = MagicMock()
+        config.model_size = "SenseVoiceSmall"
+        config.modelscope_endpoint = ""
+        engine = FunASREngine(config)
+        engine.model = MagicMock()
+        engine.model.generate = MagicMock(return_value=[{"text": "<|zh|>测试"}])
+        engine._is_sensevoice = True
+        result = engine._do_transcribe(np.random.randn(16000).astype(np.float32))
+        # 四元组格式
+        self.assertEqual(len(result), 4)
+        self.assertIsInstance(result[0], str)  # text
+        self.assertEqual(result[1], "auto")    # language
+        self.assertIsInstance(result[2], int)   # duration_ms
+        self.assertIsNone(result[3])            # error
+
+    def test_config_old_yaml_compatible(self):
+        """回归：旧配置文件（无 SenseVoice）仍可加载"""
+        from config import load_config
+        old_yaml = """
+config_version: 5
+mode: batch
+stt:
+  engine: funasr
+  model_size: paraformer-zh
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(old_yaml)
+            f.flush()
+            temp_path = f.name
+        try:
+            config = load_config(temp_path)
+            self.assertEqual(config.stt.model_size, "paraformer-zh")
+        finally:
+            os.unlink(temp_path)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

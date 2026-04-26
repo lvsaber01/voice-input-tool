@@ -108,7 +108,9 @@ input[type="range"] { width: 100%; accent-color: #4CAF50; }
     <div class="form-group">
       <label>引擎 ⚠️</label>
       <select id="stt-engine" onchange="updateModelOptions()">
+        <option value="auto">自动选择（推荐）</option>
         <option value="faster_whisper">Faster-Whisper（多语言）</option>
+        <option value="mlx_whisper" data-platform="macos">MLX-Whisper（macOS 加速）</option>
         <option value="funasr">FunASR Paraformer（中文极快）</option>
       </select>
       <div class="hint warn">⚠️ 更改此项需要重启程序</div>
@@ -422,7 +424,7 @@ function updateModelOptions() {
   // 清空当前选项
   modelSelect.innerHTML = '';
   
-  if (engine === 'faster_whisper') {
+  if (engine === 'faster_whisper' || engine === 'auto' || engine === 'mlx_whisper') {
     const options = [
       ['tiny', 'tiny（最快，精度低）'],
       ['base', 'base（快，精度一般）'],
@@ -438,12 +440,14 @@ function updateModelOptions() {
       if (v === 'large-v3-turbo') opt.selected = true;
       modelSelect.appendChild(opt);
     });
-    modelHint.textContent = 'large-v3-turbo：CPU 约1-2秒，效果接近 large';
+    modelHint.textContent = engine === 'mlx_whisper'
+      ? 'MLX-Whisper：macOS M 芯片加速，需额外下载 MLX 格式模型'
+      : 'large-v3-turbo：CPU 约1-2秒，效果接近 large';
   } else if (engine === 'funasr') {
     const options = [
       ['paraformer-zh', 'Paraformer-zh（中文极快）⭐'],
       ['paraformer-zh-streaming', 'Paraformer-zh-streaming（实时流式）'],
-      ['paraformer-en-zh', 'Paraformer-en-zh（中英混合）'],
+      ['SenseVoiceSmall', 'SenseVoice 多语言 (50+语言，推荐)'],
     ];
     options.forEach(([v, t]) => {
       const opt = document.createElement('option');
@@ -452,7 +456,7 @@ function updateModelOptions() {
       opt.selected = true;
       modelSelect.appendChild(opt);
     });
-    modelHint.textContent = 'Paraformer：CPU <0.5秒，中文准确率更高';
+    modelHint.textContent = 'Paraformer/SenseVoice：CPU <0.5秒，中文准确率更高';
   }
 }
 
