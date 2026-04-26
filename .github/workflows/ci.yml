@@ -41,7 +41,7 @@ jobs:
         python -m py_compile core/injector.py
         python -m py_compile core/hotkey.py
         python -m py_compile core/sound_player.py
-        python -m py_compile core/stream_transcriber.py
+        python -m py_compile core/streaming_transcriber.py
         python -m py_compile gui/tray.py
         python -m py_compile gui/web_server.py
         python -m py_compile platform_adapter/__init__.py
@@ -55,7 +55,7 @@ jobs:
       run: |
         python -c "from config import load_config, save_config, AppConfig, RealtimeConfig; print('config.py OK')"
         python -c "from core.engine import EngineState, CoreEngine; print('engine.py OK')"
-        python -c "from core.stream_transcriber import StreamTranscriber; print('stream_transcriber.py OK')"
+        python -c "from core.streaming_transcriber import StreamTranscriber; print('streaming_transcriber.py OK')"
         python -c "from core.recorder import AudioRecorder; print('recorder.py OK')"
         python -c "from core.stt_engine import STTEngine; assert hasattr(STTEngine, 'transcribe_sync'); print('stt_engine.py OK')"
         python -c "from core.injector import TextInjector; print('injector.py OK')"
@@ -175,4 +175,4 @@ jobs:
         python -c "from platform_adapter.clipboard_macos import MacOSClipboardInjector; print('clipboard_macos OK')"
         python -c "from platform_adapter.hotkey_base import HotkeyManagerBase; print('hotkey_base OK')"
         python -c "from platform_adapter.clipboard_base import ClipboardInjectorBase; print('clipboard_base OK')"
-        python -c "from core.stream_transcriber import StreamTranscriber; print('stream_transcriber OK')"
+        python -c "from core.streaming_transcriber import StreamTranscriber; print('streaming_transcriber OK')"
