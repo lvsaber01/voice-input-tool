@@ -73,11 +73,9 @@ class STTEngine:
             logger.info("加载模型: %s (path=%s), device=%s, compute_type=%s",
                         self.config.model_size, model_path, device, compute_type)
 
-            self.model = WhisperModel(
-                model_size_or_path=model_path,
-                device=device,
-                compute_type=compute_type,
-                download_root=download_root,
+            # 加载模型（带镜像 fallback：镜像失败时尝试原站）
+            self.model = self._load_model_with_fallback(
+                WhisperModel, model_path, device, compute_type, download_root, hf_endpoint
             )
             logger.info("模型加载完成")
             return True, ''
@@ -85,6 +83,41 @@ class STTEngine:
             error_msg = str(e)
             logger.error("模型加载失败: %s", error_msg)
             return False, error_msg
+
+    def _load_model_with_fallback(self, WhisperModel, model_path, device, compute_type, download_root, hf_endpoint):
+        """加载模型，镜像失败时自动 fallback 到原站"""
+        last_error = None
+        # 如果配了镜像，先试镜像
+        endpoints = []
+        if hf_endpoint:
+            endpoints.append(('镜像', hf_endpoint))
+            endpoints.append(('原站', None))  # fallback
+        else:
+            endpoints.append(('原站', None))
+
+        for label, endpoint in endpoints:
+            if endpoint is not None:
+                os.environ['HF_ENDPOINT'] = endpoint
+                logger.info("尝试 %s: %s", label, endpoint or 'huggingface.co')
+            else:
+                os.environ.pop('HF_ENDPOINT', None)
+                logger.info("尝试 %s: huggingface.co", label)
+            try:
+                model = WhisperModel(
+                    model_size_or_path=model_path,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=download_root,
+                )
+                logger.info("%s 加载成功", label)
+                return model
+            except Exception as e:
+                last_error = e
+                logger.warning("%s 加载失败: %s", label, str(e)[:200])
+                if len(endpoints) == 1:
+                    raise  # 只有一个 endpoint，直接抛出
+                continue
+        raise last_error
 
     def transcribe_async(self, audio: np.ndarray, callback):
         """异步转写：提交到线程池，完成后回调 callback(text, language, duration_ms, error)"""

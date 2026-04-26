@@ -196,7 +196,9 @@ def main():
         # 4. 加载配置（支持打包后路径）
         if getattr(sys, 'frozen', False):
             # 打包后：exe 目录的默认配置（模板）
-            exe_config = PROJECT_ROOT / "config.example.yaml"
+            # PyInstaller datas 文件在 _internal (sys._MEIPASS) 下
+            internal_dir = Path(getattr(sys, '_MEIPASS', ''))
+            exe_config = internal_dir / "config.example.yaml" if internal_dir else PROJECT_ROOT / "config.example.yaml"
             user_config = USER_DATA_DIR / "config.yaml"
             
             # 首次启动：复制默认配置到用户目录

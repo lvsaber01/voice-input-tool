@@ -216,6 +216,9 @@ class TrayIcon:
 
     def show_notification(self, title: str, message: str):
         """托盘气泡通知"""
+        # Windows 托盘通知限制 256 字符
+        if len(message) > 200:
+            message = message[:197] + '...'
         logger.info("通知: %s - %s", title, message)
         if self._icon is None:
             return
