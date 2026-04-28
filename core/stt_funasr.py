@@ -81,17 +81,17 @@ class FunASREngine:
                         if 'FunASRNano' not in tables.model_classes:
                             tables.model_classes['FunASRNano'] = FunASRNano
                         logger.info("FunASRNano 类注册成功 (monkey-patch workaround)")
+
+                        self.model = AutoModel(
+                            model="FunAudioLLM/Fun-ASR-Nano-2512",
+                            trust_remote_code=True,
+                            device="cpu",
+                            disable_update=True,
+                        )
                     finally:
                         # 清理 stub，避免污染其他模块
                         for m in _need_cleanup:
                             sys.modules.pop(m, None)
-
-                    self.model = AutoModel(
-                        model="FunAudioLLM/Fun-ASR-Nano-2512",
-                        trust_remote_code=True,
-                        device="cpu",
-                        disable_update=True,
-                    )
                     self._is_sensevoice = False
                     self._is_fun_asr_nano = True
                     logger.info("Fun-ASR-Nano 模型加载完成（中文精度最高，支持7种方言）")
