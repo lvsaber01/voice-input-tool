@@ -23,20 +23,37 @@ class TestFunASRNanoLoadModel:
 
     @patch('core.stt_funasr.logger')
     def test_load_model_success(self, mock_logger):
-        """测试项1: load_model Fun-ASR-Nano 成功，验证 AutoModel 参数"""
+        """测试项1: load_model Fun-ASR-Nano 成功 + monkey-patch 注册"""
         from core.stt_funasr import FunASREngine
         import sys
-        
-        # Mock 整个 funasr 包，模拟 __version__='1.3.1' (>=1.1)
+
+        # Mock funasr 包及其子模块
         mock_funasr = MagicMock()
         mock_funasr.__version__ = '1.3.1'
         mock_auto_model_instance = MagicMock()
         mock_funasr.AutoModel.return_value = mock_auto_model_instance
-        
+
+        # Mock FunASRNano 类
+        mock_nano_class = type('FunASRNano', (), {})
+        mock_nano_model = MagicMock()
+        mock_nano_model.model = MagicMock()
+        mock_nano_model.register = MagicMock(return_value=None)
+        mock_nano_model.FunASRNano = mock_nano_class
+
+        # Mock register tables
+        mock_tables = MagicMock()
+        mock_tables.model_classes = {}
+        mock_funasr.register = MagicMock()
+        mock_funasr.register.tables = mock_tables
+
         fake_modules = {
             'funasr': mock_funasr,
+            'funasr.models': MagicMock(),
+            'funasr.models.fun_asr_nano': MagicMock(),
+            'funasr.models.fun_asr_nano.model': mock_nano_model,
+            'funasr.register': mock_funasr.register,
         }
-        
+
         with patch.dict('sys.modules', fake_modules):
             config = self._make_config("Fun-ASR-Nano")
             engine = FunASREngine(config)
@@ -52,28 +69,28 @@ class TestFunASRNanoLoadModel:
             assert call_kwargs["trust_remote_code"] is True
             assert call_kwargs["device"] == "cpu"
 
+            # Verify monkey-patch registered the class
+            assert 'FunASRNano' in mock_tables.model_classes
+
     @patch('core.stt_funasr.logger')
-    def test_version_check_fails(self, mock_logger):
-        """测试项2: funasr 版本过低时返回升级提示"""
+    def test_funasr_not_installed(self, mock_logger):
+        """测试项2: funasr 未安装时返回安装提示"""
         from core.stt_funasr import FunASREngine
         import sys
-        
-        # Mock funasr with old version
-        mock_funasr = MagicMock()
-        mock_funasr.__version__ = '1.0.0'
-        
-        fake_modules = {
-            'funasr': mock_funasr,
-        }
-        
-        with patch.dict('sys.modules', fake_modules):
-            config = self._make_config("Fun-ASR-Nano")
-            engine = FunASREngine(config)
-            success, err = engine.load_model()
-            
-            assert success is False
-            assert "1.0.0" in err
-            assert "pip install" in err
+
+        fake_modules = {}
+        # 确保 funasr 不在 sys.modules
+        with patch.dict('sys.modules', fake_modules, clear=False):
+            # Remove funasr from modules if present
+            real_funasr = sys.modules.pop('funasr', MagicMock())
+            try:
+                config = self._make_config("Fun-ASR-Nano")
+                engine = FunASREngine(config)
+                success, err = engine.load_model()
+                assert success is False
+                assert "pip install funasr" in err or "funasr 未安装" in err
+            finally:
+                sys.modules['funasr'] = real_funasr
 
 
 # ============================================================

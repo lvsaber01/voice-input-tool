@@ -65,10 +65,27 @@ class FunASREngine:
                     logger.info("SenseVoice 模型加载完成（多语言，50+ 语言）")
                 elif model_name == "Fun-ASR-Nano":
                     # Fun-ASR-Nano 新一代模型（800M 参数，支持方言）
-                    import funasr
-                    funasr_version = tuple(int(x) for x in funasr.__version__.split('.')[:2])
-                    if funasr_version < (1, 1):
-                        return False, f"FunASR 版本过低 ({funasr.__version__})，请升级: pip install 'funasr>=1.1'"
+                    # Bug workaround: funasr model.py 有错误的绝对路径 import
+                    # (from ctc import CTC / from tools.utils import forced_align)
+                    # 导致 FunASRNano 类无法注册。monkey-patch stub 掉这些模块，
+                    # 推理路径 (from_pretrained) 不会真正调用它们。
+                    import sys
+                    from unittest.mock import MagicMock
+                    _stubs = ('ctc', 'tools', 'tools.utils')
+                    _need_cleanup = [m for m in _stubs if m not in sys.modules]
+                    for m in _need_cleanup:
+                        sys.modules[m] = MagicMock()
+                    try:
+                        from funasr.models.fun_asr_nano.model import FunASRNano
+                        from funasr.register import tables
+                        if 'FunASRNano' not in tables.model_classes:
+                            tables.model_classes['FunASRNano'] = FunASRNano
+                        logger.info("FunASRNano 类注册成功 (monkey-patch workaround)")
+                    finally:
+                        # 清理 stub，避免污染其他模块
+                        for m in _need_cleanup:
+                            sys.modules.pop(m, None)
+
                     self.model = AutoModel(
                         model="FunAudioLLM/Fun-ASR-Nano-2512",
                         trust_remote_code=True,
