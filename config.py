@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 5
+CURRENT_CONFIG_VERSION = 6
 
 
 # ============================================================
@@ -52,7 +52,7 @@ class StreamingConfig:
 @dataclass
 class STTConfig:
     """语音识别引擎配置"""
-    engine: str = "auto"              # auto | faster_whisper | funasr | mlx_whisper
+    engine: str = "auto"              # auto | faster_whisper | funasr | mlx_whisper | qwen3_asr
     model_size: str = "large-v3-turbo"
     model_path: str = "./models/"
     language: Optional[str] = None   # None=auto
@@ -62,11 +62,13 @@ class STTConfig:
     # 镜像配置（中国用户）
     hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像
     modelscope_endpoint: str = ""  # ModelScope 镜像（可选）
+    # Qwen3-ASR 配置
+    max_new_tokens: int = 256         # Qwen3-ASR 最大生成长度（仅 qwen3_asr 引擎使用）
     # 流式配置（仅 FunASR 支持）
     streaming: StreamingConfig = field(default_factory=StreamingConfig)
 
     def __post_init__(self):
-        valid_engines = ("auto", "faster_whisper", "funasr", "mlx_whisper")
+        valid_engines = ("auto", "faster_whisper", "funasr", "mlx_whisper", "qwen3_asr")
         if self.engine not in valid_engines:
             raise ValueError(f"stt.engine 无效值 '{self.engine}'，可选: {valid_engines}")
         if self.engine in ("faster_whisper", "auto", "mlx_whisper"):
@@ -75,14 +77,22 @@ class STTConfig:
                 if self.model_size in ("paraformer-zh", "paraformer-zh-streaming"):
                     logger.info("model_size '%s' is FunASR-only, auto-switching to large-v3-turbo", self.model_size)
                     self.model_size = "large-v3-turbo"
+                elif self.model_size in ("Qwen3-ASR-0.6B", "Qwen3-ASR-1.7B"):
+                    logger.info("model_size '%s' is Qwen3-ASR-only, auto-switching to large-v3-turbo", self.model_size)
+                    self.model_size = "large-v3-turbo"
                 else:
                     raise ValueError(f"stt.model_size 无效值 '{self.model_size}'，可选: {valid_sizes}")
         elif self.engine == "funasr":
             # FunASR 支持的模型列表（验证过的）
-            valid_funasr_sizes = ("paraformer-zh", "paraformer-zh-streaming", "paraformer-en", "SenseVoiceSmall")
+            valid_funasr_sizes = ("paraformer-zh", "paraformer-zh-streaming", "paraformer-en", "SenseVoiceSmall", "Fun-ASR-Nano")
             if self.model_size not in valid_funasr_sizes:
                 logger.info("model_size '%s' 不支持，auto-switching to paraformer-zh", self.model_size)
                 self.model_size = "paraformer-zh"
+        elif self.engine == "qwen3_asr":
+            valid_qwen3_sizes = ("Qwen3-ASR-0.6B", "Qwen3-ASR-1.7B")
+            if self.model_size not in valid_qwen3_sizes:
+                logger.info("model_size '%s' 不支持，auto-switching to Qwen3-ASR-0.6B", self.model_size)
+                self.model_size = "Qwen3-ASR-0.6B"
         if self.beam_size < 1:
             raise ValueError(f"stt.beam_size 必须 >= 1，当前: {self.beam_size}")
         
@@ -342,12 +352,28 @@ def _migrate_v4_to_v5(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v5_to_v6(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v5 → v6: 新增 Qwen3-ASR 引擎支持
+
+    - 新增 max_new_tokens 字段（默认 256）
+    - 新增 qwen3_asr 引擎类型
+    - 无需强制迁移引擎（保持用户现有配置）
+    """
+    raw["config_version"] = 6
+    stt = raw.get("stt", {})
+    if "max_new_tokens" not in stt:
+        stt["max_new_tokens"] = 256
+    raw["stt"] = stt
+    return raw
+
+
 # 迁移注册表: version → migration_function
 CONFIG_MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
+    5: _migrate_v5_to_v6,
 }
 
 

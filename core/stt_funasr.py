@@ -32,6 +32,7 @@ class FunASREngine:
         self._current_future: Optional[Future] = None
         self._lock = threading.Lock()
         self._is_sensevoice = False  # SenseVoice 模式标志，在 load_model() 中设置
+        self._is_fun_asr_nano = False  # Fun-ASR-Nano 标志位
 
     def load_model(self) -> tuple[bool, str]:
         """加载 FunASR 模型（Paraformer 或 SenseVoice）"""
@@ -60,7 +61,23 @@ class FunASREngine:
                         disable_update=True,
                     )
                     self._is_sensevoice = True
+                    self._is_fun_asr_nano = False
                     logger.info("SenseVoice 模型加载完成（多语言，50+ 语言）")
+                elif model_name == "Fun-ASR-Nano":
+                    # Fun-ASR-Nano 新一代模型（800M 参数，支持方言）
+                    try:
+                        from funasr.models.fun_asr_nano.model import FunASRNano  # 注册模型类
+                    except ImportError:
+                        return False, "FunASR 版本过低，请升级: pip install 'funasr>=1.1'"
+                    self.model = AutoModel(
+                        model="FunAudioLLM/Fun-ASR-Nano-2512",
+                        trust_remote_code=True,
+                        device="cpu",
+                        disable_update=True,
+                    )
+                    self._is_sensevoice = False
+                    self._is_fun_asr_nano = True
+                    logger.info("Fun-ASR-Nano 模型加载完成（中文精度最高，支持7种方言）")
                 else:
                     # Paraformer 模型（原逻辑不变）
                     self.model = AutoModel(
@@ -70,6 +87,7 @@ class FunASREngine:
                         disable_update=True,
                     )
                     self._is_sensevoice = False
+                    self._is_fun_asr_nano = False
                     logger.info("Paraformer 模型加载完成")
 
                 return True, ''
@@ -125,6 +143,20 @@ class FunASREngine:
                     input=audio,
                     language="auto",  # 自动语言检测
                     use_itn=True,     # 逆文本规范化
+                )
+                duration_ms = int((time.monotonic() - t0) * 1000)
+
+                raw_text = self._extract_text(result)
+                text = self._postprocess_sensevoice(raw_text)
+                detected_lang = "auto"
+            elif self._is_fun_asr_nano:
+                # Fun-ASR-Nano 转写
+                result = self.model.generate(
+                    input=audio,
+                    cache={},
+                    batch_size=1,
+                    language="auto",   # 自动检测语言（支持中英日）
+                    itn=True,          # 逆文本规范化（数字、日期格式化）
                 )
                 duration_ms = int((time.monotonic() - t0) * 1000)
 

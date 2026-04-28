@@ -1,0 +1,5 @@
+# Fun-ASR-Nano 可选依赖
+# 中文语音识别精度最高（AISHELL-1 CER 1.76%），支持7种中文方言、26种口音
+# 安装: pip install -r requirements-funasr-nano.txt
+funasr>=1.1.0
+modelscope

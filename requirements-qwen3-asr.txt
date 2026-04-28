@@ -1,0 +1,6 @@
+# Qwen3-ASR 可选依赖
+# 52种语言+22种中文方言，CPU可用
+# 安装: pip install -r requirements-qwen3-asr.txt
+qwen-asr>=0.0.5
+torch>=2.1.0,<3.0
+torchaudio>=2.1.0

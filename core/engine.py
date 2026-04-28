@@ -81,13 +81,23 @@ class CoreEngine:
         # 根据配置选择 STT 引擎和转写模式
         stt_engine_type = getattr(config.stt, 'engine', 'auto')
 
-        # auto 模式：macOS 选 mlx_whisper，其他选 faster_whisper
+        # auto 模式：macOS 选 mlx_whisper，其他选 funasr
         if stt_engine_type == 'auto':
             import platform
             if platform.system() == 'Darwin':
                 stt_engine_type = 'mlx_whisper'
             else:
-                stt_engine_type = 'faster_whisper'
+                # 向后兼容：如果用户之前的 model_size 是 whisper 格式，保持 faster_whisper
+                whisper_sizes = ('tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo')
+                if config.stt.model_size in whisper_sizes:
+                    stt_engine_type = 'faster_whisper'
+                    logger.info("auto 模式：检测到 whisper model_size，保持 faster_whisper")
+                else:
+                    stt_engine_type = 'funasr'
+                    # auto 模式 Windows/Linux 默认用 SenseVoiceSmall
+                    funasr_sizes = ('paraformer-zh', 'paraformer-zh-streaming', 'paraformer-en', 'SenseVoiceSmall', 'Fun-ASR-Nano')
+                    if config.stt.model_size not in funasr_sizes:
+                        config.stt.model_size = 'SenseVoiceSmall'
             logger.info("auto 模式：选择 %s 引擎", stt_engine_type)
 
         # streaming_enabled 对 mlx_whisper 和 funasr 都生效
@@ -122,6 +132,16 @@ class CoreEngine:
             )
             self._streaming_mode = False
             logger.info("使用VAD分段转写模式 (mlx-whisper)")
+        elif stt_engine_type == 'qwen3_asr':
+            # Qwen3-ASR：分段模式
+            from core.stt_qwen3_asr import Qwen3ASREngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = Qwen3ASREngine(config.stt)
+            self._stream_transcriber = VADSegmentTranscriber(
+                config.realtime, self._stt_engine, self._on_realtime_segment
+            )
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (Qwen3-ASR)")
         else:
             # faster-whisper：只有分段模式
             from core.stt_engine import STTEngine

@@ -283,7 +283,7 @@ class TestConfigSerialization(unittest.TestCase):
             self.assertEqual(loaded.stt.engine, "mlx_whisper")
             self.assertEqual(loaded.stt.model_size, "small")
             # 版本号会迁移到 CURRENT_CONFIG_VERSION
-            self.assertEqual(loaded.config_version, 5)
+            self.assertEqual(loaded.config_version, 6)
         finally:
             os.unlink(path)
 
@@ -309,7 +309,7 @@ class TestConfigSerialization(unittest.TestCase):
             with open(path, "w") as f:
                 yaml.dump(raw_v1, f)
             cfg = load_config(path)
-            self.assertEqual(cfg.config_version, 5)
+            self.assertEqual(cfg.config_version, 6)
         finally:
             if os.path.exists(path):
                 os.unlink(path)
