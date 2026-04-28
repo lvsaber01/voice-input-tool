@@ -177,7 +177,7 @@ exe = EXE(
     strip=False,
     upx=use_upx,
     console=False,  # 无控制台窗口
-    icon='build/icon.ico',  # 图标（占位）
+    # icon='build/icon.ico',  # 图标（待添加）
     uac_admin=False,  # 不强制管理员权限
 )
 
