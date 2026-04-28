@@ -112,6 +112,7 @@ input[type="range"] { width: 100%; accent-color: #4CAF50; }
         <option value="faster_whisper">Faster-Whisper（多语言）</option>
         <option value="mlx_whisper" data-platform="macos">MLX-Whisper（macOS 加速）</option>
         <option value="funasr">FunASR Paraformer（中文极快）</option>
+        <option value="qwen3_asr">Qwen3-ASR（52 语言，高精度）⭐</option>
       </select>
       <div class="hint warn">⚠️ 更改此项需要重启程序</div>
     </div>
@@ -443,20 +444,39 @@ function updateModelOptions() {
     modelHint.textContent = engine === 'mlx_whisper'
       ? 'MLX-Whisper：macOS M 芯片加速，需额外下载 MLX 格式模型'
       : 'large-v3-turbo：CPU 约1-2秒，效果接近 large';
-  } else if (engine === 'funasr') {
+  } else if (engine === 'qwen3_asr') {
     const options = [
-      ['paraformer-zh', 'Paraformer-zh（中文极快）⭐'],
-      ['paraformer-zh-streaming', 'Paraformer-zh-streaming（实时流式）'],
-      ['SenseVoiceSmall', 'SenseVoice 多语言 (50+语言，推荐)'],
+      ['Qwen3-ASR-0.6B', 'Qwen3-ASR-0.6B (轻量，52语言)'],
+      ['Qwen3-ASR-1.7B', 'Qwen3-ASR-1.7B (高精度，52语言)'],
     ];
     options.forEach(([v, t]) => {
       const opt = document.createElement('option');
       opt.value = v;
       opt.textContent = t;
-      opt.selected = true;
+      if (v === 'Qwen3-ASR-0.6B') opt.selected = true;
       modelSelect.appendChild(opt);
     });
-    modelHint.textContent = 'Paraformer/SenseVoice：CPU <0.5秒，中文准确率更高';
+    modelHint.textContent = 'Qwen3-ASR: 支持中英日韩等 52 种语言 + 22 种中文方言，自动语言检测';
+  } else if (engine === 'funasr') {
+    const options = [
+      ['paraformer-zh', 'Paraformer-zh (中文极快)'],
+      ['paraformer-zh-streaming', 'Paraformer-zh-streaming (实时流式)'],
+      ['paraformer-en', 'Paraformer-en (英文)'],
+      ['SenseVoiceSmall', 'SenseVoice (50+语言)'],
+      ['Fun-ASR-Nano', 'Fun-ASR-Nano (实验性，800M)'],
+    ];
+    options.forEach(([v, t]) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = t;
+      if (v === 'paraformer-zh') opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
+    modelHint.textContent = 'Paraformer/SenseVoice: CPU <0.5秒，中文准确率更高';
+  } else {
+    // Fallback for unknown engines
+    modelSelect.innerHTML = '<option value="">未知引擎</option>';
+    modelHint.textContent = '';
   }
 }
 

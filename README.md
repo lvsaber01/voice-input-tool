@@ -138,12 +138,39 @@ python3 main.py
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `model_size` | `small` | 模型大小：tiny/base/small/medium/large-v3 |
-| `model_path` | `./models/` | 模型目录路径 |
+| `engine` | `auto` | 引擎选择（见下表） |
+| `model_size` | `large-v3-turbo` | 模型大小（因引擎而异） |
 | `language` | `null` | 语言（null=自动检测，zh=中文，en=英文） |
 | `device` | `auto` | 计算设备：auto/cpu/cuda |
 | `compute_type` | `int8` | 计算精度 |
 | `beam_size` | `5` | 搜索宽度 |
+| `max_new_tokens` | `256` | Qwen3-ASR 最大生成长度（仅 qwen3_asr） |
+
+#### 引擎选择
+
+| 引擎 | 语言支持 | 速度 | 精度 | 依赖 |
+|------|---------|------|------|------|
+| `faster_whisper` | 99 语言 | 中 | 高 | faster-whisper |
+| `funasr` | 中文/英文/50+ | 极快 | 高 | funasr + modelscope |
+| `qwen3_asr` | 52 语言 + 22 方言 | 快 | 极高 | qwen-asr |
+| `mlx_whisper` | 99 语言 | 快 | 高 | mlx-whisper (macOS only) |
+
+#### FunASR 模型
+
+| model_size | 说明 |
+|------------|------|
+| `paraformer-zh` | 中文极快（推荐） |
+| `paraformer-zh-streaming` | 中文实时流式 |
+| `paraformer-en` | 英文 |
+| `SenseVoiceSmall` | 50+ 语言 |
+| `Fun-ASR-Nano` | 实验性（800M 参数） |
+
+#### Qwen3-ASR 模型
+
+| model_size | 参数量 | 说明 |
+|------------|--------|------|
+| `Qwen3-ASR-0.6B` | 0.6B | 轻量，52 语言 |
+| `Qwen3-ASR-1.7B` | 1.7B | 高精度，52 语言 |
 
 ### 音频配置 (audio)
 
@@ -284,7 +311,9 @@ voice-input-tool/
 │   ├── hotkey.py        # 热键委托层
 │   ├── recorder.py      # 音频录制（支持 rt_queue）
 │   ├── silence_detector.py  # 静音检测
-│   ├── stt_engine.py    # STT 引擎（含 transcribe_sync）
+│   ├── stt_engine.py    # STT 引擎基类
+│   ├── stt_funasr.py    # FunASR 引擎（Paraformer/SenseVoice/Nano）
+│   ├── stt_qwen3_asr.py # Qwen3-ASR 引擎
 │   ├── injector.py      # 注入委托层
 │   ├── stream_transcriber.py  # 实时转写引擎
 │   └── sound_player.py  # 提示音
@@ -313,7 +342,7 @@ voice-input-tool/
 
 ### 跨平台通用
 
-- **STT**: faster-whisper + CTranslate2（本地离线）
+- **STT**: faster-whisper + CTranslate2 / FunASR / Qwen3-ASR（本地离线）
 - **音频**: sounddevice + numpy
 - **托盘**: pystray + Pillow
 - **配置**: YAML + dataclass
