@@ -23,20 +23,18 @@ class TestFunASRNanoLoadModel:
 
     @patch('core.stt_funasr.logger')
     def test_load_model_success(self, mock_logger):
-        """测试项1: load_model Fun-ASR-Nano 成功，验证 generate 参数"""
+        """测试项1: load_model Fun-ASR-Nano 成功，验证 AutoModel 参数"""
         from core.stt_funasr import FunASREngine
         import sys
         
-        # Mock 整个 funasr 包和子模块
+        # Mock 整个 funasr 包，模拟 __version__='1.3.1' (>=1.1)
         mock_funasr = MagicMock()
-        mock_nano_module = MagicMock()
-        mock_nano_module.FunASRNano = MagicMock()
+        mock_funasr.__version__ = '1.3.1'
+        mock_auto_model_instance = MagicMock()
+        mock_funasr.AutoModel.return_value = mock_auto_model_instance
         
         fake_modules = {
             'funasr': mock_funasr,
-            'funasr.models': MagicMock(),
-            'funasr.models.fun_asr_nano': MagicMock(),
-            'funasr.models.fun_asr_nano.model': mock_nano_module,
         }
         
         with patch.dict('sys.modules', fake_modules):
@@ -56,23 +54,26 @@ class TestFunASRNanoLoadModel:
 
     @patch('core.stt_funasr.logger')
     def test_version_check_fails(self, mock_logger):
-        """测试项2: load_model Fun-ASR-Nano 版本检查失败返回升级提示"""
+        """测试项2: funasr 版本过低时返回升级提示"""
         from core.stt_funasr import FunASREngine
+        import sys
         
-        # Mock import failure
-        with patch('builtins.__import__') as mock_import:
-            def side_effect(name, *args, **kwargs):
-                if name == 'funasr.models.fun_asr_nano.model':
-                    raise ImportError("No module named 'funasr.models.fun_asr_nano'")
-                return MagicMock()
-            mock_import.side_effect = side_effect
-            
+        # Mock funasr with old version
+        mock_funasr = MagicMock()
+        mock_funasr.__version__ = '1.0.0'
+        
+        fake_modules = {
+            'funasr': mock_funasr,
+        }
+        
+        with patch.dict('sys.modules', fake_modules):
             config = self._make_config("Fun-ASR-Nano")
             engine = FunASREngine(config)
             success, err = engine.load_model()
             
             assert success is False
-            assert "升级" in err or "pip install" in err.lower()
+            assert "1.0.0" in err
+            assert "pip install" in err
 
 
 # ============================================================

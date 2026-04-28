@@ -65,10 +65,10 @@ class FunASREngine:
                     logger.info("SenseVoice 模型加载完成（多语言，50+ 语言）")
                 elif model_name == "Fun-ASR-Nano":
                     # Fun-ASR-Nano 新一代模型（800M 参数，支持方言）
-                    try:
-                        from funasr.models.fun_asr_nano.model import FunASRNano  # 注册模型类
-                    except ImportError:
-                        return False, "FunASR 版本过低，请升级: pip install 'funasr>=1.1'"
+                    import funasr
+                    funasr_version = tuple(int(x) for x in funasr.__version__.split('.')[:2])
+                    if funasr_version < (1, 1):
+                        return False, f"FunASR 版本过低 ({funasr.__version__})，请升级: pip install 'funasr>=1.1'"
                     self.model = AutoModel(
                         model="FunAudioLLM/Fun-ASR-Nano-2512",
                         trust_remote_code=True,
