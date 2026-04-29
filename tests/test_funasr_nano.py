@@ -11,12 +11,11 @@ import types
 
 
 # Windows 上 funasr import torch 触发 WinError 206（路径过长），
-# 预注册 mock 模块防止真实 import
+# 预注册 mock 模块防止真实 import（强制覆盖）
 _win_skip = sys.platform == 'win32'
-if 'funasr' not in sys.modules:
-    _mock_funasr = types.ModuleType('funasr')
-    _mock_funasr.AutoModel = MagicMock()
-    sys.modules['funasr'] = _mock_funasr
+_mock_funasr = types.ModuleType('funasr')
+_mock_funasr.AutoModel = MagicMock()
+sys.modules['funasr'] = _mock_funasr
 
 
 # ============================================================
