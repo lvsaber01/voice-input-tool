@@ -15,15 +15,16 @@ echo ================================================== >> "%LOGFILE%" 2>&1
 echo.
 
 echo ==================================================
-echo   VoiceInputTool - Full Setup (FunASR + SenseVoice)
+echo   VoiceInputTool - Full Setup
+echo   (faster-whisper + FunASR + Qwen3-ASR)
 echo ==================================================
 echo   Log file: %LOGFILE%
 echo   If the window closes, check %LOGFILE% for details.
 echo.
 
 :: Step 1: Check or install uv
-echo [1/6] Checking uv...
-echo [1/6] Checking uv... >> "%LOGFILE%" 2>&1
+echo [1/8] Checking uv...
+echo [1/8] Checking uv... >> "%LOGFILE%" 2>&1
 where uv >nul 2>&1
 if errorlevel 1 (
     echo        Installing uv...
@@ -41,8 +42,8 @@ echo        uv OK
 echo        uv OK >> "%LOGFILE%" 2>&1
 
 :: Step 2: Create venv with Python 3.11
-echo [2/6] Setting up Python 3.11 venv...
-echo [2/6] Setting up Python 3.11 venv... >> "%LOGFILE%" 2>&1
+echo [2/8] Setting up Python 3.11 venv...
+echo [2/8] Setting up Python 3.11 venv... >> "%LOGFILE%" 2>&1
 if exist .venv (
     echo        venv exists, reusing
     echo        venv exists, reusing >> "%LOGFILE%" 2>&1
@@ -59,8 +60,8 @@ if exist .venv (
 )
 
 :: Step 3: Ensure pip is available in the venv
-echo [3/6] Ensuring pip in venv...
-echo [3/6] Ensuring pip in venv... >> "%LOGFILE%" 2>&1
+echo [3/8] Ensuring pip in venv...
+echo [3/8] Ensuring pip in venv... >> "%LOGFILE%" 2>&1
 .venv\Scripts\python.exe -c "import pip" >nul 2>&1
 if errorlevel 1 (
     echo        pip not found in venv, installing...
@@ -83,108 +84,20 @@ echo        pip OK
 echo        pip OK >> "%LOGFILE%" 2>&1
 
 :: Step 4: Install core dependencies
-echo [4/6] Installing core dependencies...
-echo [4/6] Installing core dependencies... >> "%LOGFILE%" 2>&1
+echo [4/8] Installing core dependencies...
+echo [4/8] Installing core dependencies... >> "%LOGFILE%" 2>&1
 
-set "UV_CORE1_ERR=0"
-set "UV_CORE2_ERR=0"
+call :safe_install "requirements.txt" "core (requirements.txt)"
+call :safe_install "requirements_windows.txt" "core (requirements_windows.txt)"
 
-uv pip install -r requirements.txt >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_CORE1_ERR=1"
-
-uv pip install -r requirements_windows.txt >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_CORE2_ERR=1"
-
-if "!UV_CORE1_ERR!"=="1" (
-    echo [WARN] Core deps (requirements.txt) failed via uv, trying pip fallback...
-    echo [WARN] Core deps failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install -r requirements.txt >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [ERROR] pip fallback also failed for requirements.txt. Check %LOGFILE%
-        echo [ERROR] pip fallback failed for requirements.txt. >> "%LOGFILE%" 2>&1
-        goto :failed
-    )
-)
-if "!UV_CORE2_ERR!"=="1" (
-    echo [WARN] Core deps (requirements_windows.txt) failed via uv, trying pip fallback...
-    echo [WARN] Windows deps failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install -r requirements_windows.txt >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [ERROR] pip fallback also failed for requirements_windows.txt. Check %LOGFILE%
-        echo [ERROR] pip fallback failed for requirements_windows.txt. >> "%LOGFILE%" 2>&1
-        goto :failed
-    )
-)
-
-:: Step 5: Install FunASR + torch (CPU only) + Qwen3-ASR + tiktoken
-echo [5/8] Installing engine dependencies (may take 5-15 min)...
+:: Step 5: Install engine dependencies (non-fatal)
+echo [5/8] Installing engine dependencies...
 echo [5/8] Installing engine dependencies... >> "%LOGFILE%" 2>&1
 
-set "UV_TORCH_ERR=0"
-set "UV_FUNASR_ERR=0"
-set "UV_QWEN_ERR=0"
-set "UV_TIKTOK_ERR=0"
-
-echo        - torch (CPU, ~200MB)...
-echo        - torch (CPU)... >> "%LOGFILE%" 2>&1
-uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_TORCH_ERR=1"
-
-echo        - funasr + modelscope (>=1.1.0)...
-echo        - funasr + modelscope... >> "%LOGFILE%" 2>&1
-uv pip install "funasr>=1.1.0" modelscope >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_FUNASR_ERR=1"
-
-echo        - qwen-asr...
-echo        - qwen-asr... >> "%LOGFILE%" 2>&1
-uv pip install "qwen-asr>=0.0.5" >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_QWEN_ERR=1"
-
-echo        - tiktoken (Fun-ASR-Nano workaround)...
-echo        - tiktoken... >> "%LOGFILE%" 2>&1
-uv pip install tiktoken >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 set "UV_TIKTOK_ERR=1"
-
-:: Fallback for torch
-if "!UV_TORCH_ERR!"=="1" (
-    echo [WARN] torch install failed via uv, trying pip fallback...
-    echo [WARN] torch failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [WARN] pip fallback also failed for torch. FunASR/Qwen3-ASR may not work.
-        echo [WARN] pip fallback failed for torch. >> "%LOGFILE%" 2>&1
-    )
-)
-:: Fallback for funasr
-if "!UV_FUNASR_ERR!"=="1" (
-    echo [WARN] funasr install failed via uv, trying pip fallback...
-    echo [WARN] funasr failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install "funasr>=1.1.0" modelscope >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [WARN] pip fallback also failed for funasr. FunASR engine will not work.
-        echo [WARN] pip fallback failed for funasr. >> "%LOGFILE%" 2>&1
-    )
-)
-:: Fallback for qwen-asr
-if "!UV_QWEN_ERR!"=="1" (
-    echo [WARN] qwen-asr install failed via uv, trying pip fallback...
-    echo [WARN] qwen-asr failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install "qwen-asr>=0.0.5" >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [WARN] pip fallback also failed for qwen-asr. Qwen3-ASR engine will not work.
-        echo [WARN] pip fallback failed for qwen-asr. >> "%LOGFILE%" 2>&1
-    )
-)
-:: Fallback for tiktoken
-if "!UV_TIKTOK_ERR!"=="1" (
-    echo [WARN] tiktoken install failed via uv, trying pip fallback...
-    echo [WARN] tiktoken failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install tiktoken >> "%LOGFILE%" 2>&1
-    if !errorlevel! neq 0 (
-        echo [WARN] pip fallback also failed for tiktoken. Fun-ASR-Nano may have issues.
-        echo [WARN] pip fallback failed for tiktoken. >> "%LOGFILE%" 2>&1
-    )
-)
+call :safe_install "--index-url https://download.pytorch.org/whl/cpu torch torchaudio torchvision" "torch (CPU)"
+call :safe_install "funasr modelscope" "funasr + modelscope"
+call :safe_install "qwen-asr" "qwen-asr (Qwen3-ASR)"
+call :safe_install "tiktoken" "tiktoken (Fun-ASR-Nano fix)"
 
 :: Step 6: Verify core dependencies
 echo [6/8] Verifying core dependencies...
@@ -195,7 +108,6 @@ call :verify_import "yaml" "PyYAML"
 call :verify_import "faster_whisper" "faster-whisper"
 call :verify_import "sounddevice" "sounddevice"
 call :verify_import "scipy" "scipy"
-call :verify_import "scipy.signal" "scipy.signal (audio resample)"
 
 :: Step 7: Verify engine dependencies (non-fatal)
 echo [7/8] Verifying engine dependencies (non-fatal)...
@@ -203,22 +115,17 @@ echo [7/8] Verifying engine dependencies... >> "%LOGFILE%" 2>&1
 
 call :verify_import "funasr" "funasr"
 call :verify_import "torch" "torch"
-call :verify_import "qwen_asr" "qwen-asr (Qwen3-ASR)"
-call :verify_import "tiktoken" "tiktoken (Fun-ASR-Nano workaround)"
+call :verify_import "qwen_asr" "qwen-asr"
+call :verify_import "tiktoken" "tiktoken"
 
-:: Step 8: Summary
-echo [8/8] Setup summary...
-echo [8/8] Setup summary... >> "%LOGFILE%" 2>&1
+:: Step 8: Done
+echo [8/8] Done!
+echo [8/8] Done! >> "%LOGFILE%" 2>&1
 
-if "!VERIFY_FAIL!"=="1" (
+if "%VERIFY_FAIL%"=="1" (
     echo.
     echo [WARN] Some verifications failed! Check %LOGFILE%
     echo        You can still try running, but some features may not work.
-    echo ==================================================
-    echo   Setup completed with WARNINGS!
-    echo.
-    echo   Log:  %LOGFILE%
-    echo ==================================================
 ) else (
     echo.
     echo ==================================================
@@ -255,14 +162,44 @@ exit /b 1
 :: Subroutines
 :: ============================================================
 
+:safe_install
+:: Usage: call :safe_install "args" "display_name"
+:: First param: either a requirements filename or raw pip args
+:: Second param: display name for logging
+set "_INSTALL_NAME=%~2"
+echo        Installing %_INSTALL_NAME%...
+echo        Installing %_INSTALL_NAME%... >> "%LOGFILE%" 2>&1
+
+:: Try uv first
+uv pip install %~1 >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto :safe_install_pip_fallback
+echo        [OK] %_INSTALL_NAME%
+echo        [OK] %_INSTALL_NAME% >> "%LOGFILE%" 2>&1
+goto :eof
+
+:safe_install_pip_fallback
+echo        [WARN] uv failed, pip fallback...
+echo        [WARN] uv failed, pip fallback... >> "%LOGFILE%" 2>&1
+.venv\Scripts\python.exe -m pip install %~1 >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto :safe_install_fail
+echo        [OK] %_INSTALL_NAME% (pip fallback)
+echo        [OK] %_INSTALL_NAME% (pip fallback) >> "%LOGFILE%" 2>&1
+goto :eof
+
+:safe_install_fail
+echo        [FAIL] %_INSTALL_NAME%
+echo        [FAIL] %_INSTALL_NAME% >> "%LOGFILE%" 2>&1
+goto :eof
+
 :verify_import
 :: Usage: call :verify_import "module_name" "display_name"
-:: Sets VERIFY_FAIL=1 on failure
-.venv\Scripts\python.exe -c "import %~1; print('  [OK] %~2')" >> "%LOGFILE%" 2>&1
-if !errorlevel! neq 0 (
-    echo   [FAIL] %~2
-    set "VERIFY_FAIL=1"
-) else (
-    echo   [OK] %~2
-)
+.venv\Scripts\python.exe -c "import %~1" >nul 2>&1
+if errorlevel 1 goto :verify_fail
+echo   [OK] %~2
+echo   [OK] %~2 >> "%LOGFILE%" 2>&1
+goto :eof
+:verify_fail
+echo   [FAIL] %~2
+echo   [FAIL] %~2 >> "%LOGFILE%" 2>&1
+set "VERIFY_FAIL=1"
 goto :eof
