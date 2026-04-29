@@ -87,8 +87,8 @@ echo        pip OK >> "%LOGFILE%" 2>&1
 echo [4/8] Installing core dependencies...
 echo [4/8] Installing core dependencies... >> "%LOGFILE%" 2>&1
 
-call :safe_install "requirements.txt" "core (requirements.txt)"
-call :safe_install "requirements_windows.txt" "core (requirements_windows.txt)"
+call :safe_install_req "requirements.txt" "core (requirements.txt)"
+call :safe_install_req "requirements_windows.txt" "core (requirements_windows.txt)"
 
 :: Step 5: Install engine dependencies (non-fatal)
 echo [5/8] Installing engine dependencies...
@@ -162,15 +162,40 @@ exit /b 1
 :: Subroutines
 :: ============================================================
 
+:safe_install_req
+:: Usage: call :safe_install_req "filename.txt" "display_name"
+:: Installs from a requirements file with -r flag.
+set "_RNAME=%~2"
+echo        Installing %_RNAME%...
+echo        Installing %_RNAME%... >> "%LOGFILE%" 2>&1
+uv pip install -r "%~1" >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto :safe_install_req_pip
+
+echo        [OK] %_RNAME%
+echo        [OK] %_RNAME% >> "%LOGFILE%" 2>&1
+goto :eof
+
+:safe_install_req_pip
+echo        [WARN] uv failed, pip fallback...
+echo        [WARN] uv failed, pip fallback... >> "%LOGFILE%" 2>&1
+.venv\Scripts\python.exe -m pip install -r "%~1" >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto :safe_install_req_fail
+
+echo        [OK] %_RNAME% (pip fallback)
+echo        [OK] %_RNAME% (pip fallback) >> "%LOGFILE%" 2>&1
+goto :eof
+
+:safe_install_req_fail
+echo        [FAIL] %_RNAME%
+echo        [FAIL] %_RNAME% >> "%LOGFILE%" 2>&1
+goto :eof
+
 :safe_install
-:: Usage: call :safe_install "args" "display_name"
-:: First param: either a requirements filename or raw pip args
-:: Second param: display name for logging
+:: Usage: call :safe_install "package args" "display_name"
+:: Installs packages directly (not from a file).
 set "_INSTALL_NAME=%~2"
 echo        Installing %_INSTALL_NAME%...
 echo        Installing %_INSTALL_NAME%... >> "%LOGFILE%" 2>&1
-
-:: Try uv first
 uv pip install %~1 >> "%LOGFILE%" 2>&1
 if errorlevel 1 goto :safe_install_pip_fallback
 echo        [OK] %_INSTALL_NAME%
