@@ -17,11 +17,15 @@ if 'funasr' not in sys.modules:
     _mock_funasr = types.ModuleType('funasr')
     _mock_auto_model = MagicMock()
     _mock_funasr.AutoModel = _mock_auto_model
+    # 挂载 utils 子模块到 mock，让 patch() 能找到路径
+    _mock_utils = types.ModuleType('funasr.utils')
+    _mock_postprocess = types.ModuleType('funasr.utils.postprocess_utils')
+    _mock_postprocess.rich_transcription_postprocess = lambda x: x
+    _mock_utils.postprocess_utils = _mock_postprocess
+    _mock_funasr.utils = _mock_utils
     sys.modules['funasr'] = _mock_funasr
-    sys.modules['funasr.utils'] = types.ModuleType('funasr.utils')
-    sys.modules['funasr.utils.postprocess_utils'] = types.ModuleType('funasr.utils.postprocess_utils')
-    # 用真实 identity 函数而非 MagicMock，避免影响 wraps 测试
-    sys.modules['funasr.utils.postprocess_utils'].rich_transcription_postprocess = lambda x: x
+    sys.modules['funasr.utils'] = _mock_utils
+    sys.modules['funasr.utils.postprocess_utils'] = _mock_postprocess
 
 
 # ============================================================
