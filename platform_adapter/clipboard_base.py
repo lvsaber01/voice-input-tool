@@ -7,7 +7,11 @@ from abc import ABC, abstractmethod
 import logging
 import os
 import tempfile
+import threading
 from typing import Optional
+
+# 线程本地存储，用于安全传递 pending_text
+_tls = threading.local()
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,11 @@ class ClipboardInjectorBase(ABC):
     _BACKUP_FILE = os.path.join(
         tempfile.gettempdir(), f"voice_input_tool_cb_{os.getpid()}.bak"
     )
+
+    # 延时常量（秒，便于调优）
+    CLIPBOARD_SETTLE_SEC = 0.1    # 剪贴板写入后等待时间
+    POST_PASTE_WAIT_SEC = 0.05    # 粘贴后等待目标应用处理时间
+    CLIPBOARD_RESTORE_SEC = 0.15  # 恢复剪贴板前等待时间
 
     def __init__(self, config):
         self.config = config
@@ -51,24 +60,30 @@ class ClipboardInjectorBase(ABC):
 
     def _inject_via_keyboard(self, text: str) -> bool:
         """通过剪贴板+模拟粘贴注入文字。
-        
+
         跳过备份/恢复流程减少锁定时间。
         write_clipboard 已内置 PowerShell 优先 + Win32 降级。
+        使用 threading.local 线程安全传递 pending_text。
         """
+        import time
+        _tls.pending_text = text
         try:
             if not self.write_clipboard(text):
                 logger.error("写入剪贴板失败")
                 return False
-            import time
-            time.sleep(0.05)
+            time.sleep(self.CLIPBOARD_SETTLE_SEC)
             if not self.simulate_paste():
                 logger.error("模拟粘贴失败")
                 return False
+            time.sleep(self.POST_PASTE_WAIT_SEC)
             logger.info("注入成功: %d 字符", len(text))
             return True
         except Exception as e:
             logger.error("注入失败: %s", e)
             return False
+        finally:
+            if hasattr(_tls, 'pending_text'):
+                delattr(_tls, 'pending_text')
 
     def _inject_via_clipboard(self, text: str) -> bool:
         """通过剪贴板注入文字"""
@@ -104,7 +119,7 @@ class ClipboardInjectorBase(ABC):
         if self.config.restore_clipboard and self._backup is not None:
             try:
                 import time
-                time.sleep(0.1)  # 等待粘贴完成
+                time.sleep(self.CLIPBOARD_RESTORE_SEC)  # 等待粘贴完成
                 self.write_clipboard(self._backup)
             except Exception:
                 logger.debug("恢复剪贴板失败（可忽略）")

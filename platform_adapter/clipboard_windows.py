@@ -10,7 +10,7 @@ import logging
 import subprocess
 from typing import Optional
 
-from platform_adapter.clipboard_base import ClipboardInjectorBase
+from platform_adapter.clipboard_base import ClipboardInjectorBase, _tls
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +47,40 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
         return self._read_clipboard_win32()
 
     def simulate_paste(self) -> bool:
-        """模拟 Ctrl+V"""
-        # keyboard.send 在主线程和工作线程都已验证可用
+        """模拟 Ctrl+V（Win32 SendInput 直接调用优先）
+
+        降级链：SendInput → KEYEVENTF_UNICODE → keyboard.send
+        keyboard.send 作为最后兜底（会静默成功，放在前面会阻断降级）。
+        """
+        from platform_adapter.win32_input import get_win32_input
+
+        win32 = get_win32_input()
+        if win32 is None:
+            return False
+
+        # 主路径：Win32 SendInput 模拟 Ctrl+V
+        if win32.simulate_ctrl_v():
+            logger.debug("simulate_paste: SendInput Ctrl+V 成功")
+            return True
+        logger.warning("simulate_paste: SendInput Ctrl+V 失败，尝试 KEYEVENTF_UNICODE")
+
+        # 降级：KEYEVENTF_UNICODE 直输（绕过剪贴板）
+        pending = getattr(_tls, 'pending_text', None)
+        if pending:
+            if win32.send_unicode_text(pending):
+                logger.debug("simulate_paste: KEYEVENTF_UNICODE 成功")
+                return True
+            logger.warning("simulate_paste: KEYEVENTF_UNICODE 失败，尝试 keyboard.send")
+
+        # 兜底：keyboard.send（可能静默成功）
         try:
             import keyboard
             keyboard.send('ctrl+v')
+            logger.warning("simulate_paste: 使用 keyboard.send（可能静默成功）")
             return True
         except Exception as e:
-            logger.warning("keyboard.send 失败: %s，降级 SendInput", e)
-        return self._simulate_paste_sendinput()
+            logger.error("simulate_paste: 所有方式均失败: %s", e)
+        return False
 
     # ------------------------------------------------------------------
     # PowerShell 实现
@@ -173,49 +198,9 @@ class WindowsClipboardInjector(ClipboardInjectorBase):
             return None
 
     def _simulate_paste_sendinput(self) -> bool:
-        """SendInput 模拟 Ctrl+V"""
-        try:
-            user32 = ctypes.windll.user32
-
-            INPUT_KEYBOARD = 1
-            KEYEVENTF_KEYUP = 0x0002
-            VK_CONTROL = 0x11
-            VK_V = 0x56
-
-            class KEYBDINPUT(ctypes.Structure):
-                _fields_ = [
-                    ("wVk", ctypes.c_ushort),
-                    ("wScan", ctypes.c_ushort),
-                    ("dwFlags", ctypes.c_ulong),
-                    ("time", ctypes.c_ulong),
-                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-                ]
-
-            class INPUT_UNION(ctypes.Union):
-                _fields_ = [("ki", KEYBDINPUT)]
-
-            class INPUT(ctypes.Structure):
-                _fields_ = [
-                    ("type", ctypes.c_ulong),
-                    ("union", INPUT_UNION),
-                ]
-
-            def make_key_input(vk, flags=0):
-                inp = INPUT()
-                inp.type = INPUT_KEYBOARD
-                inp.union.ki.wVk = vk
-                inp.union.ki.dwFlags = flags
-                return inp
-
-            inputs = [
-                make_key_input(VK_CONTROL),
-                make_key_input(VK_V),
-                make_key_input(VK_V, KEYEVENTF_KEYUP),
-                make_key_input(VK_CONTROL, KEYEVENTF_KEYUP),
-            ]
-            arr = (INPUT * len(inputs))(*inputs)
-            user32.SendInput(len(inputs), arr, ctypes.sizeof(INPUT))
-            return True
-        except Exception as e:
-            logger.error("SendInput 失败: %s", e)
-            return False
+        """SendInput 模拟 Ctrl+V - 已迁移到 win32_input.py"""
+        from platform_adapter.win32_input import get_win32_input
+        win32 = get_win32_input()
+        if win32 is not None:
+            return win32.simulate_ctrl_v()
+        return False
