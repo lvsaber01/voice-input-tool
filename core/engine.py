@@ -272,12 +272,14 @@ class CoreEngine:
                 self._rt_audio_queue = queue_mod.Queue(maxsize=self._rt_max_queue_size)
                 self._recorder.start(self._rt_audio_queue)
                 
+                # 获取 recorder 的 resampler，注入到实时转写器
+                resampler = self._recorder.resampler
                 if self._streaming_mode:
-                    # 流式模式：传入引擎和回调
-                    self._stream_transcriber.start(self._rt_audio_queue, self._stt_engine, self._on_realtime_segment)
+                    # 流式模式：传入引擎、回调和 resampler
+                    self._stream_transcriber.start(self._rt_audio_queue, self._stt_engine, self._on_realtime_segment, resampler=resampler)
                 else:
-                    # VAD分段模式：只传入队列（引擎已在构造时传入）
-                    self._stream_transcriber.start(self._rt_audio_queue)
+                    # VAD分段模式：传入队列和 resampler
+                    self._stream_transcriber.start(self._rt_audio_queue, resampler=resampler)
                 
                 self._sound_player.play("start")
                 self._events.publish(EngineEvent.RECORDING_STARTED)
@@ -364,6 +366,13 @@ class CoreEngine:
             self._silence_detector.end_detection()
             self._sound_player.play("end")
             self._events.publish(EngineEvent.RECORDING_STOPPED)
+            # 基于秒数的最短时长判断（而非样本数）
+            min_duration_sec = 0.2  # 200ms
+            if len(audio) < int(min_duration_sec * 16000):
+                logger.debug("录音时长不足 %.1fs，忽略", min_duration_sec)
+                self.transition(EngineState.IDLE)
+                self._events.publish(EngineEvent.TRANSCRIBE_COMPLETE, "", None, 0)
+                return
             self._stt_engine.transcribe_async(audio, self._on_stt_complete)
         except Exception as e:
             logger.error("停止录音失败: %s", e)

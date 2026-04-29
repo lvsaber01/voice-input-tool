@@ -19,9 +19,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 采样率
-SAMPLE_RATE = 16000
-
 
 class VADSegmentTranscriber:
     """VAD 分段转写引擎（降级备用）。
@@ -64,12 +61,17 @@ class VADSegmentTranscriber:
         # 统计
         self._segments_count = 0
 
-    def start(self, audio_queue: queue.Queue):
+        # 采样率相关（由 start() 初始化）
+        self._source_sr = 16000
+        self._resampler = None
+        self._vad_resampler = None
+
+    def start(self, audio_queue: queue.Queue, resampler=None):
         """启动实时转写
 
-        audio_queue: Recorder 的实时模式专用队列
-        （IDLE→STREAMING 时创建，与批量模式 buffer_queue 分离，
-         SilenceDetector 不消费此队列，避免竞态）
+        Args:
+            audio_queue: Recorder 的实时模式专用队列
+            resampler: AudioResampler 实例（可选，源采样率 ≠ 16000 时传入）
         """
         self._load_vad()
         self._running = True
@@ -79,14 +81,32 @@ class VADSegmentTranscriber:
         self._speech_duration = 0.0
         self._segments_count = 0
 
+        # 初始化源采样率和 resampler
+        self._vad_resampler = None
+        if resampler is not None:
+            self._resampler = resampler
+            self._source_sr = resampler.source_sr
+            logger.info("VADSegmentTranscriber: 源采样率=%d, 目标=%d",
+                       self._source_sr, resampler.target_sr)
+
+            # 如果源采样率不在 webrtcvad 支持列表中，创建 VAD 专用 resampler
+            if self._vad_mode == 'webrtcvad' and self._source_sr not in (8000, 16000, 32000, 48000):
+                from core.audio_resampler import create_resampler
+                # 选择最近的 webrtcvad 支持采样率，避免非整数比重采样导致相位失真
+                supported_rates = [8000, 16000, 32000, 48000]
+                vad_target = min(supported_rates, key=lambda r: abs(r - self._source_sr))
+                self._vad_resampler = create_resampler(self._source_sr, vad_target)
+                logger.info("VAD: 源采样率 %d 不在 webrtcvad 支持列表，选择最近的 %d 进行重采样",
+                           self._source_sr, vad_target)
+        else:
+            self._resampler = None
+            self._source_sr = 16000  # 无 resampler 时保持默认
+
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-
-        # 启动独立注入线程（避免阻塞转写主循环）
         self._inject_thread = threading.Thread(target=self._inject_worker, daemon=True)
         self._inject_thread.start()
-
-        logger.info("实时转写引擎已启动")
+        logger.info("实时转写引擎已启动 (source_sr=%d)", self._source_sr)
 
     def stop(self):
         """停止实时转写"""
@@ -154,8 +174,17 @@ class VADSegmentTranscriber:
 
             if is_speech:
                 self._speech_buffer.append(chunk)
-                self._speech_duration += len(chunk) / SAMPLE_RATE
+                # v4.0: 使用 self._source_sr 而非硬编码 SAMPLE_RATE
+                self._speech_duration += len(chunk) / self._source_sr
                 self._silence_start = None
+
+                # 防止 buffer 无限增长（异常情况：VAD 一直返回 True 但无静音触发 flush）
+                max_buffer_sec = 30
+                max_buffer_samples = int(max_buffer_sec * self._source_sr)
+                total_samples = sum(len(c) for c in self._speech_buffer)
+                if total_samples > max_buffer_samples:
+                    logger.warning("VAD buffer 超过 %.0f 秒上限，强制 flush", max_buffer_sec)
+                    self._flush_speech_buffer()
 
                 # 超长段强制切分
                 if self._speech_duration >= self._config.max_segment_duration:
@@ -181,12 +210,24 @@ class VADSegmentTranscriber:
             return self._vad_detect_rms(audio_chunk)
         
         # webrtcvad 模式
-        frame_length = int(self._config.vad_window_ms * SAMPLE_RATE / 1000)
-        if len(audio_chunk) < frame_length:
+        # 确定用于 VAD 的音频和采样率
+        if self._vad_resampler is not None:
+            # 非常见采样率：先 resample 到最近的支持采样率
+            if len(audio_chunk) > 0:
+                vad_chunk = self._vad_resampler.resample(audio_chunk)
+            else:
+                vad_chunk = audio_chunk
+            vad_sr = self._vad_resampler.target_sr
+        else:
+            vad_chunk = audio_chunk
+            vad_sr = self._source_sr
+
+        frame_length = int(self._config.vad_window_ms * vad_sr / 1000)
+        if len(vad_chunk) < frame_length:
             return False
-        frame = (audio_chunk[-frame_length:] * 32767).astype(np.int16).tobytes()
+        frame = (vad_chunk[-frame_length:] * 32767).astype(np.int16).tobytes()
         try:
-            return self._vad.is_speech(frame, SAMPLE_RATE)
+            return self._vad.is_speech(frame, vad_sr)
         except Exception:
             return False
 
@@ -210,10 +251,14 @@ class VADSegmentTranscriber:
         self._speech_duration = 0.0
         self._silence_start = None
 
-        # 超短段跳过
-        min_samples = int(self._config.min_segment_duration * SAMPLE_RATE)
+        # 超短段跳过（基于源采样率计算时长）
+        min_samples = int(self._config.min_segment_duration * self._source_sr)
         if len(audio) < min_samples:
             return
+
+        # resample 到 16kHz 后送入 STT 引擎
+        if self._resampler and self._resampler.needs_resample and len(audio) > 0:
+            audio = self._resampler.resample(audio)
 
         # 同步转写（在当前线程中）
         # transcribe_sync: 阻塞式转写，保证顺序输出

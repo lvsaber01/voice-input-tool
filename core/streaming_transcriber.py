@@ -18,9 +18,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 采样率
-SAMPLE_RATE = 16000
-
 
 class StreamingTranscriber:
     """流式转写器
@@ -53,23 +50,46 @@ class StreamingTranscriber:
         self._engine = None
         self._on_segment: Optional[Callable] = None
         self._chunk_samples = 9600  # 默认值
+
+        # 采样率相关（由 start() 初始化）
+        self._source_sr = 16000
+        self._resampler = None
         
         # 统计
         self._chunks_count = 0
         self._texts_count = 0
     
-    def start(self, audio_queue: queue.Queue, engine, on_segment: Callable):
+    def start(self, audio_queue: queue.Queue, engine, on_segment: Callable, resampler=None):
         """启动流式转写
-        
+
         Args:
             audio_queue: AudioRecorder 的输出队列（maxsize 由创建者设置）
             engine: 流式引擎实例（实现 get_chunk_samples 和 transcribe_chunk）
             on_segment: 文本输出回调
+            resampler: AudioResampler 实例（可选，源采样率 ≠ 16000 时传入）
         """
         self._audio_queue = audio_queue
         self._engine = engine
         self._on_segment = on_segment
-        self._chunk_samples = engine.get_chunk_samples()  # 从引擎获取
+        self._resampler = resampler
+
+        # 引擎期望的 chunk 时长（ms）
+        chunk_ms = 600  # FunASRStreamingEngine.CHUNK_MS
+        if hasattr(engine, 'CHUNK_MS'):
+            chunk_ms = engine.CHUNK_MS
+
+        # chunk_samples 根据源采样率动态计算
+        if resampler is not None:
+            self._source_sr = resampler.source_sr
+            # 引擎期望的是 600ms @16kHz = 9600 样本
+            # 但我们累积的是源采样率的样本，需要累积到相同时长
+            self._chunk_samples = int(chunk_ms * self._source_sr / 1000)
+            logger.info("StreamingTranscriber: 源采样率=%d, chunk=%d样本(%.0fms), 需resample后送入引擎",
+                       self._source_sr, self._chunk_samples, chunk_ms)
+        else:
+            self._source_sr = 16000
+            self._chunk_samples = engine.get_chunk_samples()
+            logger.info("StreamingTranscriber: 默认16kHz, chunk=%d样本", self._chunk_samples)
         
         with self._buffer_lock:
             self._buffer = []  # 重置
@@ -105,6 +125,11 @@ class StreamingTranscriber:
             if self._buffer and self._engine:
                 audio_chunk = np.array(self._buffer)
                 self._buffer = []
+
+                # resample 剩余音频再送入引擎
+                if self._resampler and self._resampler.needs_resample and len(audio_chunk) > 0:
+                    audio_chunk = self._resampler.resample(audio_chunk)
+
                 try:
                     text = self._engine.transcribe_chunk(audio_chunk, is_final=True)
                     if text:
@@ -183,7 +208,21 @@ class StreamingTranscriber:
         audio_chunk = np.array(self._buffer[:self._chunk_samples])
         self._buffer = self._buffer[self._chunk_samples:]
         self._chunks_count += 1
-        
+
+        # resample 到 16kHz 后再送入引擎
+        if self._resampler and self._resampler.needs_resample and len(audio_chunk) > 0:
+            audio_chunk = self._resampler.resample(audio_chunk)
+
+        # 对齐 resample 后的 chunk 长度到引擎期望值
+        # 非整数比重采样（如 44100→16000）可能产生 ±1 样本误差
+        if self._resampler and self._resampler.needs_resample and hasattr(self._engine, 'CHUNK_SAMPLES'):
+            expected = self._engine.CHUNK_SAMPLES
+            if abs(len(audio_chunk) - expected) <= 2:  # 容差 ±2
+                if len(audio_chunk) > expected:
+                    audio_chunk = audio_chunk[:expected]
+                elif len(audio_chunk) < expected:
+                    audio_chunk = np.pad(audio_chunk, (0, expected - len(audio_chunk)))
+
         try:
             text = self._engine.transcribe_chunk(audio_chunk, is_final=False)
             if text:

@@ -116,52 +116,99 @@ if "!UV_CORE2_ERR!"=="1" (
     )
 )
 
-:: Step 5: Install FunASR + torch (CPU only)
-echo [5/6] Installing torch + FunASR (may take 5-10 min)...
-echo [5/6] Installing torch + FunASR... >> "%LOGFILE%" 2>&1
+:: Step 5: Install FunASR + torch (CPU only) + Qwen3-ASR + tiktoken
+echo [5/8] Installing engine dependencies (may take 5-15 min)...
+echo [5/8] Installing engine dependencies... >> "%LOGFILE%" 2>&1
 
 set "UV_TORCH_ERR=0"
 set "UV_FUNASR_ERR=0"
+set "UV_QWEN_ERR=0"
+set "UV_TIKTOK_ERR=0"
 
 echo        - torch (CPU, ~200MB)...
 echo        - torch (CPU)... >> "%LOGFILE%" 2>&1
 uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu >> "%LOGFILE%" 2>&1
 if !errorlevel! neq 0 set "UV_TORCH_ERR=1"
 
-echo        - funasr + modelscope...
+echo        - funasr + modelscope (>=1.1.0)...
 echo        - funasr + modelscope... >> "%LOGFILE%" 2>&1
-uv pip install funasr modelscope >> "%LOGFILE%" 2>&1
+uv pip install "funasr>=1.1.0" modelscope >> "%LOGFILE%" 2>&1
 if !errorlevel! neq 0 set "UV_FUNASR_ERR=1"
 
+echo        - qwen-asr...
+echo        - qwen-asr... >> "%LOGFILE%" 2>&1
+uv pip install "qwen-asr>=0.0.5" >> "%LOGFILE%" 2>&1
+if !errorlevel! neq 0 set "UV_QWEN_ERR=1"
+
+echo        - tiktoken (Fun-ASR-Nano workaround)...
+echo        - tiktoken... >> "%LOGFILE%" 2>&1
+uv pip install tiktoken >> "%LOGFILE%" 2>&1
+if !errorlevel! neq 0 set "UV_TIKTOK_ERR=1"
+
+:: Fallback for torch
 if "!UV_TORCH_ERR!"=="1" (
     echo [WARN] torch install failed via uv, trying pip fallback...
     echo [WARN] torch failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
     .venv\Scripts\python.exe -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu >> "%LOGFILE%" 2>&1
     if !errorlevel! neq 0 (
-        echo [WARN] pip fallback also failed for torch. FunASR may not work.
+        echo [WARN] pip fallback also failed for torch. FunASR/Qwen3-ASR may not work.
         echo [WARN] pip fallback failed for torch. >> "%LOGFILE%" 2>&1
     )
 )
+:: Fallback for funasr
 if "!UV_FUNASR_ERR!"=="1" (
     echo [WARN] funasr install failed via uv, trying pip fallback...
     echo [WARN] funasr failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
-    .venv\Scripts\python.exe -m pip install funasr modelscope >> "%LOGFILE%" 2>&1
+    .venv\Scripts\python.exe -m pip install "funasr>=1.1.0" modelscope >> "%LOGFILE%" 2>&1
     if !errorlevel! neq 0 (
         echo [WARN] pip fallback also failed for funasr. FunASR engine will not work.
         echo [WARN] pip fallback failed for funasr. >> "%LOGFILE%" 2>&1
     )
 )
+:: Fallback for qwen-asr
+if "!UV_QWEN_ERR!"=="1" (
+    echo [WARN] qwen-asr install failed via uv, trying pip fallback...
+    echo [WARN] qwen-asr failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
+    .venv\Scripts\python.exe -m pip install "qwen-asr>=0.0.5" >> "%LOGFILE%" 2>&1
+    if !errorlevel! neq 0 (
+        echo [WARN] pip fallback also failed for qwen-asr. Qwen3-ASR engine will not work.
+        echo [WARN] pip fallback failed for qwen-asr. >> "%LOGFILE%" 2>&1
+    )
+)
+:: Fallback for tiktoken
+if "!UV_TIKTOK_ERR!"=="1" (
+    echo [WARN] tiktoken install failed via uv, trying pip fallback...
+    echo [WARN] tiktoken failed via uv, pip fallback... >> "%LOGFILE%" 2>&1
+    .venv\Scripts\python.exe -m pip install tiktoken >> "%LOGFILE%" 2>&1
+    if !errorlevel! neq 0 (
+        echo [WARN] pip fallback also failed for tiktoken. Fun-ASR-Nano may have issues.
+        echo [WARN] pip fallback failed for tiktoken. >> "%LOGFILE%" 2>&1
+    )
+)
 
-:: Step 6: Verify
-echo [6/6] Verifying installation...
-echo [6/6] Verifying installation... >> "%LOGFILE%" 2>&1
+:: Step 6: Verify core dependencies
+echo [6/8] Verifying core dependencies...
+echo [6/8] Verifying core dependencies... >> "%LOGFILE%" 2>&1
 set "VERIFY_FAIL=0"
 
 call :verify_import "yaml" "PyYAML"
 call :verify_import "faster_whisper" "faster-whisper"
+call :verify_import "sounddevice" "sounddevice"
+call :verify_import "scipy" "scipy"
+call :verify_import "scipy.signal" "scipy.signal (audio resample)"
+
+:: Step 7: Verify engine dependencies (non-fatal)
+echo [7/8] Verifying engine dependencies (non-fatal)...
+echo [7/8] Verifying engine dependencies... >> "%LOGFILE%" 2>&1
+
 call :verify_import "funasr" "funasr"
 call :verify_import "torch" "torch"
-call :verify_import "sounddevice" "sounddevice"
+call :verify_import "qwen_asr" "qwen-asr (Qwen3-ASR)"
+call :verify_import "tiktoken" "tiktoken (Fun-ASR-Nano workaround)"
+
+:: Step 8: Summary
+echo [8/8] Setup summary...
+echo [8/8] Setup summary... >> "%LOGFILE%" 2>&1
 
 if "!VERIFY_FAIL!"=="1" (
     echo.

@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 6
+CURRENT_CONFIG_VERSION = 7
 
 
 # ============================================================
@@ -119,6 +119,7 @@ class AudioConfig:
     silence_threshold: float = 0.01
     silence_check_interval: float = 0.5
     device: Optional[str] = None      # None=系统默认，或设备名/索引
+    sample_rate: Optional[int] = None  # None=auto | 16000 | 48000 等
 
     def __post_init__(self):
         if self.max_duration < 1:
@@ -129,6 +130,17 @@ class AudioConfig:
             raise ValueError(f"audio.silence_threshold 须在 (0, 1]，当前: {self.silence_threshold}")
         if self.silence_check_interval <= 0:
             raise ValueError(f"audio.silence_check_interval 必须 > 0，当前: {self.silence_check_interval}")
+        # 处理 sample_rate
+        if self.sample_rate is not None:
+            if isinstance(self.sample_rate, str):
+                if self.sample_rate.lower() == 'auto':
+                    self.sample_rate = None
+                else:
+                    try:
+                        self.sample_rate = int(self.sample_rate)
+                    except ValueError:
+                        logger.warning("audio.sample_rate 无效值 '%s'，回退为 auto", self.sample_rate)
+                        self.sample_rate = None
 
 
 @dataclass
@@ -367,6 +379,19 @@ def _migrate_v5_to_v6(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v6_to_v7(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v6 → v7: 新增 audio.sample_rate 字段
+
+    - audio.sample_rate: None=auto（自动检测设备采样率）
+    """
+    raw["config_version"] = 7
+    audio = raw.get("audio", {})
+    if "sample_rate" not in audio:
+        audio["sample_rate"] = None  # auto
+    raw["audio"] = audio
+    return raw
+
+
 # 迁移注册表: version → migration_function
 CONFIG_MIGRATIONS = {
     1: _migrate_v1_to_v2,
@@ -374,6 +399,7 @@ CONFIG_MIGRATIONS = {
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
     5: _migrate_v5_to_v6,
+    6: _migrate_v6_to_v7,
 }
 
 
