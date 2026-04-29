@@ -240,7 +240,7 @@ class TestConfigSerialization(unittest.TestCase):
     def test_flatten_to_appconfig_full(self):
         """完整 dict → AppConfig"""
         raw = {
-            "config_version": 5,
+            "config_version": 7,
             "mode": "batch",
             "hotkey": {"trigger": "f9", "mode": "push_to_talk"},
             "stt": {"engine": "mlx_whisper", "model_size": "small"},
@@ -262,7 +262,7 @@ class TestConfigSerialization(unittest.TestCase):
 
     def test_flatten_ignores_unknown_keys(self):
         """多余 key 被忽略"""
-        raw = {"config_version": 5, "unknown_key": 123, "stt": {"engine": "auto", "bogus": True}}
+        raw = {"config_version": 7, "unknown_key": 123, "stt": {"engine": "auto", "bogus": True}}
         cfg = _flatten_to_appconfig(raw)
         self.assertIsInstance(cfg, AppConfig)
 
@@ -270,7 +270,7 @@ class TestConfigSerialization(unittest.TestCase):
         """保存后加载，配置一致"""
         import tempfile, os
         cfg = AppConfig()
-        cfg.config_version = 5  # 设为最新版本避免迁移
+        cfg.config_version = 7  # 设为最新版本避免迁移
         cfg.stt.engine = "mlx_whisper"
         cfg.stt.model_size = "small"
 
@@ -299,8 +299,8 @@ class TestConfigSerialization(unittest.TestCase):
             if os.path.exists(path):
                 os.unlink(path)
 
-    def test_migration_v1_to_v5(self):
-        """v1 配置迁移到 v5"""
+    def test_migration_v1_to_current(self):
+        """v1 配置迁移到最新版本"""
         import tempfile, os
         raw_v1 = {"mode": "batch"}
         path = tempfile.mktemp(suffix=".yaml")
@@ -309,7 +309,7 @@ class TestConfigSerialization(unittest.TestCase):
             with open(path, "w") as f:
                 yaml.dump(raw_v1, f)
             cfg = load_config(path)
-            self.assertEqual(cfg.config_version, 6)
+            self.assertEqual(cfg.config_version, 7)
         finally:
             if os.path.exists(path):
                 os.unlink(path)

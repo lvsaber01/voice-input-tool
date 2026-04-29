@@ -4,9 +4,23 @@
 不依赖实际模型加载，使用 unittest.mock。
 """
 
+import sys
+import types
 import pytest
 import numpy as np
 from unittest.mock import patch, MagicMock, PropertyMock
+
+
+# Windows 上 funasr import torch 触发 WinError 206（路径过长），
+# 预注册 mock 模块防止真实 import
+if 'funasr' not in sys.modules:
+    _mock_funasr = types.ModuleType('funasr')
+    _mock_auto_model = MagicMock()
+    _mock_funasr.AutoModel = _mock_auto_model
+    sys.modules['funasr'] = _mock_funasr
+    sys.modules['funasr.utils'] = types.ModuleType('funasr.utils')
+    sys.modules['funasr.utils.postprocess_utils'] = types.ModuleType('funasr.utils.postprocess_utils')
+    sys.modules['funasr.utils.postprocess_utils'].rich_transcription_postprocess = MagicMock()
 
 
 # ============================================================

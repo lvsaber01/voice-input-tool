@@ -3,9 +3,21 @@
 覆盖设计文档中的所有用例，使用 unittest.mock，不依赖实际模型。
 """
 
+import sys
+import types
 import pytest
 import numpy as np
 from unittest.mock import patch, MagicMock
+
+
+# Windows 上 import torch 触发 WinError 206（路径过长），
+# 预注册 mock 模块防止真实 import
+if 'torch' not in sys.modules:
+    _mock_torch = types.ModuleType('torch')
+    _mock_torch.cuda = MagicMock()
+    sys.modules['torch'] = _mock_torch
+
+_win_skip = sys.platform == 'win32'
 
 
 # ============================================================
