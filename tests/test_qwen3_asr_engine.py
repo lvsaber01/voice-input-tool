@@ -16,6 +16,16 @@ if 'torch' not in sys.modules:
     _mock_torch = types.ModuleType('torch')
     _mock_torch.cuda = MagicMock()
     sys.modules['torch'] = _mock_torch
+if 'qwen_asr' not in sys.modules:
+    _mock_qwen = types.ModuleType('qwen_asr')
+    sys.modules['qwen_asr'] = _mock_qwen
+    sys.modules['qwen_asr.inference'] = types.ModuleType('qwen_asr.inference')
+    sys.modules['qwen_asr.inference.qwen3_asr'] = types.ModuleType('qwen_asr.inference.qwen3_asr')
+    sys.modules['qwen_asr.core'] = types.ModuleType('qwen_asr.core')
+    sys.modules['qwen_asr.core.transformers_backend'] = types.ModuleType('qwen_asr.core.transformers_backend')
+    sys.modules['qwen_asr.core.transformers_backend.configuration_qwen3_asr'] = types.ModuleType('qwen_asr.core.transformers_backend.configuration_qwen3_asr')
+    sys.modules['transformers'] = types.ModuleType('transformers')
+    sys.modules['transformers.configuration_utils'] = types.ModuleType('transformers.configuration_utils')
 
 _win_skip = sys.platform == 'win32'
 

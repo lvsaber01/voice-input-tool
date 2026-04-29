@@ -20,7 +20,8 @@ if 'funasr' not in sys.modules:
     sys.modules['funasr'] = _mock_funasr
     sys.modules['funasr.utils'] = types.ModuleType('funasr.utils')
     sys.modules['funasr.utils.postprocess_utils'] = types.ModuleType('funasr.utils.postprocess_utils')
-    sys.modules['funasr.utils.postprocess_utils'].rich_transcription_postprocess = MagicMock()
+    # 用真实 identity 函数而非 MagicMock，避免影响 wraps 测试
+    sys.modules['funasr.utils.postprocess_utils'].rich_transcription_postprocess = lambda x: x
 
 
 # ============================================================

@@ -283,7 +283,7 @@ class TestConfigSerialization(unittest.TestCase):
             self.assertEqual(loaded.stt.engine, "mlx_whisper")
             self.assertEqual(loaded.stt.model_size, "small")
             # 版本号会迁移到 CURRENT_CONFIG_VERSION
-            self.assertEqual(loaded.config_version, 6)
+            self.assertEqual(loaded.config_version, 7)
         finally:
             os.unlink(path)
 

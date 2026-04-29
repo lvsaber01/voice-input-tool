@@ -48,12 +48,22 @@ class TestClipboardBase(unittest.TestCase):
     def test_restore_from_file_base64(self):
         """_restore_from_file 使用 base64 解码"""
         injector = ConcreteInjector(FakeConfig())
+        # 清理可能残留的文件
+        if os.path.exists(injector._BACKUP_FILE):
+            try:
+                os.unlink(injector._BACKUP_FILE)
+            except OSError:
+                pass
         content = base64.b64encode("恢复内容".encode('utf-8')).decode('ascii')
         with open(injector._BACKUP_FILE, 'w') as f:
             f.write(content)
+        f.close()  # 确保文件关闭
         result = injector._restore_from_file()
         self.assertEqual(result, "恢复内容")
-        os.unlink(injector._BACKUP_FILE)
+        try:
+            os.unlink(injector._BACKUP_FILE)
+        except OSError:
+            pass
 
     def test_restore_from_missing_file(self):
         """缺失文件返回 None"""
