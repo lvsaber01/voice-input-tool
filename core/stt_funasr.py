@@ -16,6 +16,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# 抑制 FunASR 模型内部的冗余日志（如每次转写打印完整热词列表）
+logging.getLogger("funasr.models.seaco_paraformer").setLevel(logging.WARNING)
+logging.getLogger("funasr.models.contextual_paraformer").setLevel(logging.WARNING)
+
 
 class FunASREngine:
     """FunASR 语音识别引擎。
@@ -68,14 +72,17 @@ class FunASREngine:
                     # Fun-ASR-Nano 新一代模型（800M 参数，支持方言）
                     # Bug workaround: funasr model.py 有错误的绝对路径 import
                     # (from ctc import CTC / from tools.utils import forced_align)
-                    # 导致 FunASRNano 类无法注册。monkey-patch stub 掉这些模块，
-                    # 推理路径 (from_pretrained) 不会真正调用它们。
-                    import sys
-                    from unittest.mock import MagicMock
-                    _stubs = ('ctc', 'tools', 'tools.utils')
-                    _need_cleanup = [m for m in _stubs if m not in sys.modules]
-                    for m in _need_cleanup:
-                        sys.modules[m] = MagicMock()
+                    # 替换为正确的模块路径注入到 sys.modules
+                    import sys, importlib
+                    _real_modules = {
+                        'ctc': 'funasr.models.fun_asr_nano.ctc',
+                        'tools': 'funasr.models.fun_asr_nano.tools',
+                        'tools.utils': 'funasr.models.fun_asr_nano.tools.utils',
+                    }
+                    _need_cleanup = [m for m in _real_modules if m not in sys.modules]
+                    for alias, real in _real_modules.items():
+                        if alias not in sys.modules:
+                            sys.modules[alias] = importlib.import_module(real)
                     try:
                         from funasr.models.fun_asr_nano.model import FunASRNano
                         from funasr.register import tables
@@ -89,10 +96,13 @@ class FunASREngine:
                             device="cpu",
                             disable_update=True,
                         )
-                    finally:
-                        # 清理 stub，避免污染其他模块
+                    except Exception:
+                        # 注册或加载失败时清理 stub
                         for m in _need_cleanup:
                             sys.modules.pop(m, None)
+                        raise
+                    # 注意：不清理 stub！模型推理时 ct-punc / forced_align 等需要访问这些模块
+                    # stub 在程序退出时随 sys.modules 一起释放
                     self._is_sensevoice = False
                     self._is_fun_asr_nano = True
                     logger.info("Fun-ASR-Nano 模型加载完成（中文精度最高，支持7种方言）")
@@ -115,9 +125,9 @@ class FunASREngine:
                     os.environ['MODELSCOPE_ENDPOINT'] = original_endpoint
                 elif 'MODELSCOPE_ENDPOINT' in os.environ:
                     del os.environ['MODELSCOPE_ENDPOINT']
-        except ImportError:
-            logger.error("funasr 未安装。请运行: pip install funasr modelscope")
-            return False, 'funasr 未安装，请运行: pip install funasr modelscope'
+        except ImportError as e:
+            logger.error("funasr 导入失败: %s", e)
+            return False, f'funasr 导入失败: {e}'
         except Exception as e:
             error_msg = str(e)[:200]  # 截断防止日志注入
             logger.error("FunASR 模型加载失败: %s", error_msg)
@@ -178,13 +188,19 @@ class FunASREngine:
                 detected_lang = "auto"
             elif self._is_fun_asr_nano:
                 # Fun-ASR-Nano 转写
-                result = self.model.generate(
-                    input=audio,
-                    cache={},
-                    batch_size=1,
-                    language="auto",   # 自动检测语言（支持中英日）
-                    itn=True,          # 逆文本规范化（数字、日期格式化）
-                )
+                # generate_chatml 只接受 str 或 torch.Tensor，numpy 数组需转换
+                import torch
+                audio_tensor = torch.from_numpy(audio).float()
+                generate_kwargs = {
+                    "input": audio_tensor,
+                    "cache": {},
+                    "batch_size": 1,
+                    "language": "auto",
+                    "itn": True,
+                }
+                if self._hotword_list:
+                    generate_kwargs["hotwords"] = self._hotword_list
+                result = self.model.generate(**generate_kwargs)
                 duration_ms = int((time.monotonic() - t0) * 1000)
 
                 raw_text = self._extract_text(result)
@@ -194,7 +210,8 @@ class FunASREngine:
                 # Paraformer 转写（原逻辑不变）
                 kwargs = {"input": audio, "batch_size_s": 300}
                 if self._hotword_list:
-                    kwargs["hotword"] = self._hotword_list
+                    # Paraformer hotword 参数只接受字符串（文件路径或空格分隔）
+                    kwargs["hotword"] = " ".join(self._hotword_list)
                 result = self.model.generate(**kwargs)
                 duration_ms = int((time.monotonic() - t0) * 1000)
 

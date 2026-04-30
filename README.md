@@ -151,7 +151,10 @@ Docker
 
 ### FunASR 原生热词
 
-无箭头热词（如 `CUDA`）会同步到 FunASR Paraformer 模型的 `hotword` 参数，从识别层面提升专有名词准确率。仅 Paraformer 模型支持。
+无箭头热词（如 `CUDA`）会同步到 FunASR 模型的热词参数：
+- **Paraformer**：通过 `hotword` 参数在解码阶段注入
+- **Fun-ASR-Nano**：通过 `hotwords` 参数作为 LLM 上下文注入（建议性）
+- **SenseVoice**：仅文本替换（不支持原生热词参数）
 
 ### Web UI 管理
 
@@ -231,7 +234,7 @@ Docker
 | `paraformer-zh-streaming` | 中文实时流式 |
 | `paraformer-en` | 英文 |
 | `SenseVoiceSmall` | 50+ 语言 |
-| `Fun-ASR-Nano` | 实验性（800M 参数） |
+| `Fun-ASR-Nano` | 中文精度最高（SenseVoice+LLM），支持方言/标点/ITN |
 
 #### Qwen3-ASR 模型
 

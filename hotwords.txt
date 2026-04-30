@@ -1,15 +1,138 @@
 # 热词文件 — 每行一条，# 开头为注释
-# 格式：匹配文本 → 替换文本（或 -> 替换文本，兼容 ASCII 箭头）
-# 没有箭头时，该词同时用于文本替换和 FunASR 原生热词
-# [分类] 行是纯标记，方便组织
 
-# 在此添加你常用的专有名词：
-# [通用]
-# 刘洋
-# 鹤壁
-# 飞书
-#
-# [技术]
-# CUDA
-# Kubernetes -> K8s
-# Vue.js
+飞书
+飞书群
+英伟达
+热词
+采样率
+静音检测
+语音输入工具
+Obsidian
+Saber
+Altria
+OpenClaw
+Hermes
+CUDA
+Docker
+Linux
+MacOS -> macOS
+Git
+GitHub
+npm
+API
+SDK
+OAuth
+HTTPS
+WebSocket
+RESTful
+CRUD
+JSON
+YAML
+Markdown
+Nginx
+Redis
+MySQL
+PostgreSQL
+MongoDB
+SQLite
+Kafka
+RabbitMQ
+FunASR
+SenseVoice
+GPT
+ChatGPT
+Claude
+Gemini
+Llama
+Mistral
+DeepSeek
+Kimi
+Qwen
+GLM
+Sora
+Midjourney
+Stable Diffusion
+LangChain
+LlamaIndex
+Hugging Face
+Transformers
+PyTorch
+TensorFlow
+ONNX
+OpenAI
+Anthropic
+Meta AI
+Google DeepMind
+Prompt Engineering
+RAG
+Fine-tuning
+LoRA
+RLHF
+SFT
+Embedding
+Vector Database
+Token
+Attention
+Transformer
+Diffusion Model
+Inference
+Hallucination
+Agent
+Multi-Agent
+Tool Calling
+Function Calling
+Chain of Thought
+Temperature
+Top-P
+Context Window
+Knowledge Distillation
+Quantization
+AWS
+Azure
+GCP
+Vercel
+Heroku
+DigitalOcean
+Cloudflare
+Serverless
+Kubernetes -> K8s
+Docker Compose
+Terraform
+CI/CD
+Python
+JavaScript
+TypeScript
+React
+Vue.js -> VueJS
+Angular
+Next.js
+Node.js
+Rust
+Go
+Java
+Swift
+Kotlin
+Flutter
+Electron
+Tauri
+Webpack
+Vite
+Bun
+Deno
+Zod
+Prisma
+Jupyter
+Pandas
+NumPy
+Scikit-learn
+Matplotlib
+Spark
+Airflow
+dbt
+FFmpeg
+WebRTC
+Opus
+H.264
+VP9
+AV1
+OBS

@@ -3,3 +3,4 @@
 # 安装: pip install -r requirements-funasr-nano.txt
 funasr>=1.1.0
 modelscope
+transformers>=4.30.0
