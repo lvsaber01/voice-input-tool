@@ -11,11 +11,15 @@
 | 批量录音模式 | ✅ | ✅ |
 | 实时转写模式 | ✅ | ✅ |
 | 全局热键（F8） | ✅ keyboard | ✅ pynput |
-| 剪贴板注入 | ✅ Win32 API | ✅ pbcopy + osascript |
+| 文字注入（SendInput 3层降级） | ✅ Win32 API | ✅ pbcopy + osascript |
 | 静音检测自动停止 | ✅ | ✅ |
 | 系统托盘图标 | ✅ | ✅ |
 | Web 配置页面 | ✅ | ✅ |
 | 中英文自动检测 | ✅ | ✅ |
+| 热词替换系统 | ✅ | ✅ |
+| 正则规则清理 | ✅ | ✅ |
+| FunASR 原生热词 | ✅ | - |
+| 语音命令 | ✅ | ✅ |
 
 ### 两种工作模式
 
@@ -105,6 +109,70 @@ python3 main.py
 
 ---
 
+## 热词系统
+
+### 概述
+
+STT 识别结果在注入前会经过**热词 Pipeline**处理，自动将易识别错的专有名词替换为正确文本。
+
+处理流程：`STT 原文 → 正则规则清理 → 热词文本替换 → 注入`
+
+### 热词替换
+
+在 `hotwords.txt` 中定义，每行一条：
+
+```
+# 有箭头：仅文本替换（如缩写展开）
+Kubernetes -> K8s
+Vue.js -> VueJS
+
+# 无箭头：同时用于文本替换和 FunASR 原生热词（提升识别率）
+CUDA
+Docker
+```
+
+- 大小写不敏感（默认），`Kubernetes`、`kubernetes`、`KUBERNETES` 均匹配
+- 长词优先：`Kubernetes` 优先于 `Kube`
+- 最小词长保护：短于 2 字符的词自动跳过
+
+### 正则规则清理
+
+在 `hot-rules.txt` 中定义，用于清理 STT 常见噪声：
+
+```
+# 标点语音指令 → 真实标点
+(^逗号[，。]?)|([，。]?逗号$)       =    ，
+(^句号[，。]?)|([，。]?句号$)       =    。
+
+# 噪声标记清理
+<|nospeech|>    =  
+[|breath|]      =  
+```
+
+### FunASR 原生热词
+
+无箭头热词（如 `CUDA`）会同步到 FunASR Paraformer 模型的 `hotword` 参数，从识别层面提升专有名词准确率。仅 Paraformer 模型支持。
+
+### Web UI 管理
+
+打开 Web 配置页面（`http://localhost:18921`）→ **热词管理** 标签，可直接编辑热词和规则，无需手动编辑文件。
+
+---
+
+## 语音命令
+
+说出口令即可触发操作，无需手动操作：
+
+| 命令 | 功能 |
+|------|------|
+| 换行 / 回车 | 插入换行符 |
+| 句号 / 逗号 | 插入对应标点 |
+| 删除 / 退格 | 删除前一个字符 |
+
+命令匹配优先于热词替换：先匹配命令，未命中再走 Pipeline。
+
+---
+
 ## 配置说明
 
 配置文件：`config.yaml`（首次运行自动生成）
@@ -187,6 +255,23 @@ python3 main.py
 | `auto_paste` | `true` | 自动模拟粘贴 |
 | `clipboard_backup` | `true` | 注入前备份剪贴板 |
 | `clipboard_restore` | `true` | 注入后恢复原剪贴板 |
+
+> Windows 注入采用 **3 层降级链**：SendInput（Unicode） → KEYEVENTF_UNICODE → 剪贴板粘贴，确保微信/企业微信等应用可靠注入。
+
+### 热词配置 (hotword)
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `true` | 启用热词替换 |
+| `case_sensitive` | `false` | 大小写敏感 |
+
+热词数据存储在 `hotwords.txt`，正则规则存储在 `hot-rules.txt`。详见上方「热词系统」章节。
+
+### 命令配置 (command)
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `true` | 启用语音命令 |
 
 ---
 
@@ -307,7 +392,10 @@ voice-input-tool/
 ├── config.py            # 配置管理（含 RealtimeConfig）
 ├── config.yaml          # 用户配置文件
 ├── core/                # 核心模块
-│   ├── engine.py        # 状态机引擎（含 STREAMING 状态）
+│   ├── engine.py        # 状态机引擎（含 Pipeline 集成）
+│   ├── hotword.py       # 热词管理器（HotwordManager）
+│   ├── text_pipeline.py # 文本处理 Pipeline（正则 → 热词）
+│   ├── command.py       # 语音命令匹配与执行
 │   ├── hotkey.py        # 热键委托层
 │   ├── recorder.py      # 音频录制（支持 rt_queue）
 │   ├── silence_detector.py  # 静音检测
@@ -323,13 +411,17 @@ voice-input-tool/
 │   ├── hotkey_windows.py # Windows 实现（keyboard）
 │   ├── hotkey_macos.py  # macOS 实现（pynput + watchdog）
 │   ├── clipboard_base.py # 注入抽象基类
-│   ├── clipboard_windows.py # Windows 实现（Win32 API）
-│   └── clipboard_macos.py  # macOS 实现（pbcopy + osascript）
+│   ├── clipboard_windows.py # Windows 实现（SendInput 3层降级 + Win32 Clipboard）
+│   ├── clipboard_macos.py  # macOS 实现（pbcopy + osascript）
+│   ├── key_simulator.py   # Windows 键盘模拟（SendInput 封装）
+│   ├── win32_input.py     # Win32 SendInput / KEYEVENTF_UNICODE 常量
 ├── gui/                 # 界面模块
 │   ├── tray.py          # 系统托盘（含模式切换菜单）
 │   └── web_server.py    # Web 配置服务
 ├── scripts/             # 工具脚本
 ├── models/              # STT 模型
+├── hotwords.txt         # 热词数据文件
+├── hot-rules.txt        # 正则规则文件
 ├── requirements.txt     # 跨平台基础依赖
 ├── requirements_windows.txt # Windows 特定依赖
 ├── requirements_macos.txt   # macOS 特定依赖
@@ -350,7 +442,7 @@ voice-input-tool/
 ### Windows 特定
 
 - **热键**: keyboard 库（LowLevelKeyboardHook）
-- **注入**: Win32 Clipboard API + SendInput（ctypes）
+- **注入**: Win32 SendInput 3层降级（SendInput → KEYEVENTF_UNICODE → 剪贴板） + ctypes
 
 ### macOS 特定
 
@@ -362,17 +454,27 @@ voice-input-tool/
 
 ## 开发与测试
 
-### 运行端到端测试
+### 测试概览
+
+**500+ 测试用例**，5 层测试策略：
+
+| 层级 | 文件 | 内容 | 用例数 |
+|------|------|------|--------|
+| Layer 1 单元测试 | test_hotword.py, test_text_pipeline.py | 热词管理器、Pipeline 核心逻辑 | 50 |
+| Layer 2 引擎集成 | test_engine_pipeline_integration.py | 命令优先、批量/实时 Pipeline 联动 | 21 |
+| Layer 3 跨平台 | macOS + Windows 回归 | 文件编码、原子写入、平台兼容 | 全量 |
+| Layer 4 端到端 | test_hotword_e2e.py, test_hotword_api.py | 文件 reload、FunASR 同步、API CRUD | 32 |
+| Layer 5 回归 | 全量测试 | 现有功能不受影响 | 400+ |
+
+### 运行测试
 
 ```bash
-python3 test_e2e.py
-```
+# macOS
+python3 -m pytest tests/ --ignore=tests/test_platform_and_modules.py -q
 
-测试覆盖：
-- STT 引擎（模型加载、转写）
-- 剪贴板注入（读写验证）
-- StreamTranscriber（VAD + 分段）
-- CoreEngine 状态机（STREAMING 转换）
+# Windows
+python -m pytest tests/ -q
+```
 
 ---
 
@@ -382,4 +484,4 @@ MIT License
 
 ---
 
-*语音输入工具 v2.0 — 跨平台支持 + 实时转写模式*
+*语音输入工具 v2.1 — 跨平台支持 + 实时转写 + 热词系统 + 语音命令*
