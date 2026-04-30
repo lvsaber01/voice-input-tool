@@ -140,8 +140,8 @@ class TestHotwordManager(unittest.TestCase):
             mgr.add_hotword("Test")
             success = mgr.save_to_file()
             self.assertTrue(success)
-            # 重新加载验证
-            with open(mgr.resolve_file_path(mgr._hotwords_file), 'r') as f:
+            # 重新加载验证（显式 UTF-8 读取，Windows 默认用 GBK）
+            with open(mgr.resolve_file_path(mgr._hotwords_file), 'r', encoding='utf-8') as f:
                 content = f.read()
             self.assertIn("Test", content)
 
