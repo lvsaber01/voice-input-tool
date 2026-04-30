@@ -158,6 +158,9 @@ class CoreEngine:
                                                    on_rms_update=self._on_rms_update)
         self._injector = TextInjector(config.inject)
         self._sound_player = SoundPlayer(config.sound)
+
+        # 热词系统
+        self._init_hotword_pipeline(config)
         
         # 流式模式音频队列（由 engine.py 创建，应用 max_queue_size）
         max_queue_size = getattr(config.stt.streaming, 'max_queue_size', 300) if self._streaming_mode else 300
@@ -261,6 +264,52 @@ class CoreEngine:
         return True
 
     # ============================================================
+    # 热词系统
+    # ============================================================
+
+    def _init_hotword_pipeline(self, config):
+        """初始化热词管理系统（HotwordManager + TextPipeline）。"""
+        try:
+            from core.hotword import HotwordManager
+            from core.text_pipeline import TextPipeline
+
+            hw_config = getattr(config, 'hotword', None)
+            if hw_config is None:
+                logger.info("热词配置未设置，跳过热词系统初始化")
+                self._hotword_manager = None
+                self._text_pipeline = None
+                return
+
+            self._hotword_manager = HotwordManager(
+                hotwords_file=hw_config.hotwords_file,
+                rules_file=hw_config.rules_file,
+                min_word_length=hw_config.min_word_length,
+            )
+            self._text_pipeline = TextPipeline(
+                hotword_manager=self._hotword_manager,
+                enabled=hw_config.enabled,
+                case_sensitive=hw_config.case_sensitive,
+            )
+            self._text_pipeline.register_reload_callback(self._on_pipeline_reloaded)
+
+            # 同步 FunASR 原生热词
+            self._on_pipeline_reloaded()
+
+            logger.info("热词系统初始化完成: enabled=%s, case_sensitive=%s",
+                       hw_config.enabled, hw_config.case_sensitive)
+        except Exception as e:
+            logger.error("热词系统初始化失败，降级为禁用: %s", e, exc_info=True)
+            self._hotword_manager = None
+            self._text_pipeline = None
+
+    def _on_pipeline_reloaded(self):
+        """pipeline reload 后同步更新 FunASR 原生热词。"""
+        if self._hotword_manager and self._stt_engine:
+            if hasattr(self._stt_engine, 'load_hotwords'):
+                hotword_list = self._hotword_manager.get_model_hotword_list()
+                self._stt_engine.load_hotwords(hotword_list)
+
+    # ============================================================
     # 实时转写模式
     # ============================================================
 
@@ -313,6 +362,18 @@ class CoreEngine:
 
         full_text = timestamp_prefix + text + separator
         logger.info("实时段落: %s", text[:50])
+
+        # 实时模式走 pipeline（清理噪声标记等），但不做命令匹配
+        if self._text_pipeline:
+            try:
+                result = self._text_pipeline.process(text)
+                text = result.text
+                if not text.strip():
+                    return  # pipeline 清理后为空，跳过
+                # 更新 full_text
+                full_text = timestamp_prefix + text + separator
+            except Exception as e:
+                logger.warning("实时 pipeline 处理异常，使用原文: %s", e)
 
         try:
             self._injector.inject(full_text)
@@ -455,6 +516,16 @@ class CoreEngine:
                     self._sound_player.play("complete")
                     return
                 # 命令执行失败，继续正常注入
+
+        # 未匹配命令，走 pipeline 处理（命令优先策略）
+        if self._text_pipeline:
+            try:
+                pipeline_result = self._text_pipeline.process(text)
+                text = pipeline_result.text
+                if pipeline_result.is_changed:
+                    logger.info("Pipeline 处理: %s", text[:100])
+            except Exception as e:
+                logger.warning("Pipeline 处理异常，使用原文: %s", e)
 
         if self.transition(EngineState.INJECTING):
             self._inject_text(text)

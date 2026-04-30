@@ -275,7 +275,7 @@ class TestConfigSampleRate(unittest.TestCase):
         self.assertEqual(result['audio']['sample_rate'], 48000)
 
     def test_load_config_migrates_to_v7(self):
-        """完整加载流程: 旧配置自动迁移到 v7"""
+        """完整加载流程: 旧配置自动迁移到 v8"""
         import tempfile, yaml
         from config import load_config
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
@@ -283,7 +283,7 @@ class TestConfigSampleRate(unittest.TestCase):
             path = f.name
         try:
             config = load_config(path)
-            self.assertEqual(config.config_version, 7)
+            self.assertEqual(config.config_version, 8)
             self.assertIsNone(config.audio.sample_rate)
         finally:
             os.unlink(path)
@@ -828,7 +828,7 @@ class TestRegressionNoResamplePath(unittest.TestCase):
             path = f.name
         try:
             config = load_config(path)
-            self.assertEqual(config.config_version, 7)
+            self.assertEqual(config.config_version, 8)
             self.assertEqual(config.audio.max_duration, 120)
             self.assertEqual(config.stt.engine, 'faster_whisper')
             self.assertEqual(config.hotkey.trigger, 'f8')

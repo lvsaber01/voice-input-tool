@@ -33,6 +33,7 @@ class FunASREngine:
         self._lock = threading.Lock()
         self._is_sensevoice = False  # SenseVoice 模式标志，在 load_model() 中设置
         self._is_fun_asr_nano = False  # Fun-ASR-Nano 标志位
+        self._hotword_list: list = []  # FunASR 原生热词列表
 
     def load_model(self) -> tuple[bool, str]:
         """加载 FunASR 模型（Paraformer 或 SenseVoice）"""
@@ -139,6 +140,15 @@ class FunASREngine:
                 lambda f: callback(*self._unpack_result(f))
             )
 
+    def load_hotwords(self, hotword_list: list):
+        """加载 FunASR 原生热词列表（由 engine 的 reload 回调调用）。
+
+        仅对 Paraformer 模型生效。SenseVoice 和 Fun-ASR-Nano 不支持。
+        """
+        self._hotword_list = list(hotword_list)  # 复制一份，避免引用共享
+        if self._hotword_list:
+            logger.info("FunASR 原生热词已加载: %d 条", len(self._hotword_list))
+
     def _do_transcribe(self, audio: np.ndarray) -> tuple:
         """实际转写逻辑（线程池中执行）。
 
@@ -182,10 +192,10 @@ class FunASREngine:
                 detected_lang = "auto"
             else:
                 # Paraformer 转写（原逻辑不变）
-                result = self.model.generate(
-                    input=audio,
-                    batch_size_s=300,
-                )
+                kwargs = {"input": audio, "batch_size_s": 300}
+                if self._hotword_list:
+                    kwargs["hotword"] = self._hotword_list
+                result = self.model.generate(**kwargs)
                 duration_ms = int((time.monotonic() - t0) * 1000)
 
                 text = self._extract_text(result)

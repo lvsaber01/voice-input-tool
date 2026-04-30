@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 7
+CURRENT_CONFIG_VERSION = 8
 
 
 # ============================================================
@@ -199,6 +199,16 @@ class CommandConfig:
 
 
 @dataclass
+class HotwordConfig:
+    """热词系统配置"""
+    enabled: bool = True                # 热词系统总开关
+    hotwords_file: str = "hotwords.txt"  # 热词数据文件路径
+    rules_file: str = "hot-rules.txt"    # 正则规则文件路径
+    case_sensitive: bool = False         # 热词匹配是否区分大小写
+    min_word_length: int = 2             # 热词最短字符数（防误替换）
+
+
+@dataclass
 class RealtimeConfig:
     """实时转写模式配置"""
     # 语音段分割
@@ -240,6 +250,7 @@ class AppConfig:
     startup: StartupConfig = field(default_factory=StartupConfig)
     command: CommandConfig = field(default_factory=CommandConfig)
     realtime: RealtimeConfig = field(default_factory=RealtimeConfig)
+    hotword: HotwordConfig = field(default_factory=HotwordConfig)
 
 
 # ============================================================
@@ -256,6 +267,7 @@ _SUB_CONFIG_TYPES: Dict[str, type] = {
     "startup": StartupConfig,
     "command": CommandConfig,
     "realtime": RealtimeConfig,
+    "hotword": HotwordConfig,
     "streaming": StreamingConfig,  # 新增
 }
 
@@ -379,6 +391,20 @@ def _migrate_v5_to_v6(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v7_to_v8(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v7 → v8: 新增 hotword 配置段"""
+    raw["config_version"] = 8
+    if "hotword" not in raw:
+        raw["hotword"] = {
+            "enabled": True,
+            "hotwords_file": "hotwords.txt",
+            "rules_file": "hot-rules.txt",
+            "case_sensitive": False,
+            "min_word_length": 2,
+        }
+    return raw
+
+
 def _migrate_v6_to_v7(raw: Dict[str, Any]) -> Dict[str, Any]:
     """v6 → v7: 新增 audio.sample_rate 字段
 
@@ -400,6 +426,7 @@ CONFIG_MIGRATIONS = {
     4: _migrate_v4_to_v5,
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
+    7: _migrate_v7_to_v8,
 }
 
 

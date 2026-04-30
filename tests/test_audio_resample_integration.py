@@ -665,7 +665,7 @@ class TestConfigMigrationE2E(unittest.TestCase):
         return path
 
     def test_v4_config_migrates_to_v7_and_app_starts(self):
-        """v4 旧配置 → 自动迁移到 v7 → 所有字段可用"""
+        """v4 旧配置 → 自动迁移到 v8 → 所有字段可用"""
         from config import load_config
 
         old_config = {
@@ -693,7 +693,7 @@ class TestConfigMigrationE2E(unittest.TestCase):
         path = self._write_temp_config(old_config)
         try:
             config = load_config(path)
-            self.assertEqual(config.config_version, 7)
+            self.assertEqual(config.config_version, 8)
             self.assertIsNone(config.audio.sample_rate)  # 新字段，默认 auto
             self.assertEqual(config.audio.max_duration, 120)
             self.assertEqual(config.stt.engine, 'funasr')
@@ -717,25 +717,25 @@ class TestConfigMigrationE2E(unittest.TestCase):
         try:
             # 第一次加载（触发迁移）
             config1 = load_config(path)
-            self.assertEqual(config1.config_version, 7)
+            self.assertEqual(config1.config_version, 8)
 
             # 重新加载（不应再迁移）
             with open(path, 'r') as f:
                 raw = yaml.safe_load(f)
-            self.assertEqual(raw['config_version'], 7)
+            self.assertEqual(raw["config_version"], 8)
 
             config2 = load_config(path)
-            self.assertEqual(config2.config_version, 7)
+            self.assertEqual(config2.config_version, 8)
             self.assertEqual(config2.audio.max_duration, 60)
         finally:
             os.unlink(path)
 
     def test_v7_config_with_explicit_sample_rate(self):
-        """v7 配置 + 显式 sample_rate → 正常加载"""
+        """v8 配置 + 显式 sample_rate → 正常加载"""
         from config import load_config
 
         config_dict = {
-            'config_version': 7,
+            'config_version': 8,
             'audio': {'max_duration': 120, 'sample_rate': 48000},
             'stt': {'engine': 'faster_whisper', 'model_size': 'large-v3-turbo'},
         }
@@ -777,7 +777,7 @@ class TestModuleImportE2E(unittest.TestCase):
 
     def test_import_config(self):
         from config import AppConfig, CURRENT_CONFIG_VERSION, load_config
-        self.assertEqual(CURRENT_CONFIG_VERSION, 7)
+        self.assertEqual(CURRENT_CONFIG_VERSION, 8)
 
     def test_no_circular_import(self):
         """无循环导入"""
