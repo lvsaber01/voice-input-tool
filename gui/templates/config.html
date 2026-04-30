@@ -81,6 +81,7 @@ input[type="range"] { width: 100%; accent-color: #4CAF50; }
     <button class="tab" data-tab="audio">音频</button>
     <button class="tab" data-tab="sound">提示音</button>
     <button class="tab" data-tab="inject">注入</button>
+    <button class="tab" data-tab="hotword">热词</button>
   </div>
 
   <!-- 快捷键 -->
@@ -227,6 +228,40 @@ input[type="range"] { width: 100%; accent-color: #4CAF50; }
     </div>
   </div>
 
+  <!-- 热词 -->
+  <div id="tab-hotword" class="panel">
+    <div class="switch-row" style="margin-bottom:16px">
+      <label>启用热词系统</label>
+      <label class="switch"><input type="checkbox" id="hotword-enabled" checked><span class="slider"></span></label>
+    </div>
+    <div class="form-group">
+      <label>文本热词 <span id="hotword-count" style="color:#999;font-weight:400"></span></label>
+      <textarea id="hotword-editor" rows="8" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:monospace;resize:vertical" placeholder="CUDA -> CUDA
+Kubernetes -> K8s
+CUDA
+[gpu]&#10;RTX 4090"></textarea>
+      <div class="hint">格式：匹配文本 → 替换文本（无箭头则同时用于文本替换和 FunASR 原生热词）。[分类] 标记分组。</div>
+      <button class="btn btn-primary" style="margin-top:8px" onclick="saveHotwords()">保存热词</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+    <div class="form-group">
+      <label>正则规则 <span id="rule-count" style="color:#999;font-weight:400"></span></label>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="addPresetRules('punct')">🏷️ 标点符号</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="addPresetRules('unit')">🔤 单位转换</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="addPresetRules('noise')">🧹 噪声清理</button>
+      </div>
+      <textarea id="rule-editor" rows="6" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:monospace;resize:vertical" placeholder="正则表达式 = 替换内容&#10;例如: [，。] = ,"></textarea>
+      <div class="hint">左边正则匹配 = 右边替换内容</div>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <input type="text" id="rule-test-input" placeholder="输入测试文本..." style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+        <button class="btn btn-test" onclick="testRules()">测试</button>
+      </div>
+      <div id="rule-test-result" style="margin-top:6px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:13px;display:none;white-space:pre-wrap"></div>
+      <button class="btn btn-primary" style="margin-top:8px" onclick="saveRules()">保存规则</button>
+    </div>
+  </div>
+
   <div class="btn-row">
     <button class="btn btn-secondary" onclick="resetConfig()">重置默认</button>
     <button class="btn btn-primary" onclick="saveConfig()">保存</button>
@@ -332,7 +367,9 @@ function loadConfig() {
     document.getElementById('inject-clipboard-restore').checked = data.inject?.clipboard_restore ?? true;
     document.getElementById('inject-trailing-space').checked = data.inject?.add_trailing_space ?? false;
     document.getElementById('inject-paste-delay').value = data.inject?.paste_delay_ms ?? 100;
-  }).catch(e => showToast('加载配置失败: ' + e, 'error'));
+    // Hotword
+    document.getElementById('hotword-enabled').checked = data.hotword?.enabled ?? true;
+  }).then(() => loadHotwords()).then(() => loadRules()).catch(e => showToast('加载配置失败: ' + e, 'error'));
 }
 
 function gatherConfig() {
@@ -365,6 +402,9 @@ function gatherConfig() {
       clipboard_restore: document.getElementById('inject-clipboard-restore').checked,
       add_trailing_space: document.getElementById('inject-trailing-space').checked,
       paste_delay_ms: parseInt(document.getElementById('inject-paste-delay').value),
+    },
+    hotword: {
+      enabled: document.getElementById('hotword-enabled').checked,
     },
   };
 }
@@ -485,6 +525,140 @@ loadConfig();
 loadStatus();
 updateModelOptions();  // 初始化模型选项
 setInterval(loadStatus, 5000);
+
+// ============ 热词管理 ============
+function loadHotwords() {
+  fetch(BASE + '/api/hotwords').then(r => r.json()).then(data => {
+    if (!data.ok) return;
+    const lines = data.hotwords.map(h => {
+      if (h.source === h.target) return h.source;
+      return h.source + ' -> ' + h.target;
+    });
+    document.getElementById('hotword-editor').value = lines.join('\n');
+    document.getElementById('hotword-count').textContent = '(' + data.count + ' 条)';
+  }).catch(() => {});
+}
+
+function saveHotwords() {
+  const text = document.getElementById('hotword-editor').value;
+  const hotwords = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || (trimmed.startsWith('[') && trimmed.endsWith(']'))) continue;
+    let source, target;
+    if (trimmed.includes('→')) {
+      const parts = trimmed.split('→');
+      source = parts[0].trim(); target = parts[1].trim();
+    } else if (trimmed.includes('->')) {
+      const parts = trimmed.split('->');
+      source = parts[0].trim(); target = parts[1].trim();
+    } else {
+      source = trimmed; target = trimmed;
+    }
+    if (source) hotwords.push({source, target});
+  }
+  fetch(tokenUrl('/api/hotwords'), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hotwords}),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) { showToast('热词已保存 (' + data.count + ' 条)'); loadHotwords(); }
+    else showToast(data.error || '保存失败', 'error');
+  }).catch(e => showToast('保存失败: ' + e, 'error'));
+}
+
+function loadRules() {
+  fetch(BASE + '/api/hotword-rules').then(r => r.json()).then(data => {
+    if (!data.ok) return;
+    const lines = data.rules.map(r => r.pattern + ' = ' + r.replacement);
+    document.getElementById('rule-editor').value = lines.join('\n');
+    document.getElementById('rule-count').textContent = '(' + data.count + ' 条)';
+  }).catch(() => {});
+}
+
+function saveRules() {
+  const text = document.getElementById('rule-editor').value;
+  const rules = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx < 0) continue;
+    const pattern = trimmed.substring(0, idx).trimEnd();
+    const replacement = trimmed.substring(idx + 1).trimStart();
+    if (pattern) rules.push({pattern, replacement});
+  }
+  fetch(tokenUrl('/api/hotword-rules'), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rules}),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) { showToast('规则已保存 (' + data.count + ' 条)'); loadRules(); }
+    else showToast(data.error || '保存失败', 'error');
+  }).catch(e => showToast('保存失败: ' + e, 'error'));
+}
+
+const PRESET_RULES = {
+  punct: [
+    '[，。！？；：、] = .',
+    '[（）] = ()',
+    '[【】] = []',
+    '[""' + "''" + '] = "',
+  ],
+  unit: [
+    '一百(零|一|二|三|四|五|六|七|八|九)*万 = ',
+    '一百(零|一|二|三|四|五|六|七|八|九)*亿 = ',
+  ],
+  noise: [
+    '\[音乐\] = ',
+    '\[笑声\] = ',
+    '\[掌声\] = ',
+    '\[空白\] = ',
+    '<unk> = ',
+  ],
+};
+
+function addPresetRules(type) {
+  const editor = document.getElementById('rule-editor');
+  const existing = editor.value;
+  const rules = PRESET_RULES[type] || [];
+  const newLines = [];
+  for (const rule of rules) {
+    if (!existing.includes(rule.split(' = ')[0])) {
+      newLines.push(rule);
+    }
+  }
+  if (newLines.length === 0) {
+    showToast('这些规则已存在', 'success');
+    return;
+  }
+  editor.value = (existing.trim() ? existing.trim() + '\n' : '') + newLines.join('\n');
+  showToast('已追加 ' + newLines.length + ' 条规则');
+}
+
+function testRules() {
+  const text = document.getElementById('rule-test-input').value;
+  const rulesText = document.getElementById('rule-editor').value;
+  const result = document.getElementById('rule-test-result');
+  if (!text) { result.style.display = 'none'; return; }
+  try {
+    let processed = text;
+    for (const line of rulesText.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx < 0) continue;
+      const pattern = trimmed.substring(0, idx).trimEnd();
+      const replacement = trimmed.substring(idx + 1).trimStart();
+      try {
+        processed = processed.replace(new RegExp(pattern, 'g'), replacement);
+      } catch(e) { /* skip invalid */ }
+    }
+    result.style.display = 'block';
+    result.textContent = '替换结果: ' + processed;
+  } catch(e) {
+    result.style.display = 'block';
+    result.textContent = '测试失败: ' + e;
+  }
+}
 </script>
 </body>
 </html>

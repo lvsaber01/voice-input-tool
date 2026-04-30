@@ -49,6 +49,10 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._handle_get_stats()
         elif path == "/api/audio/devices":
             self._handle_get_audio_devices()
+        elif path == "/api/hotwords":
+            self._handle_get_hotwords()
+        elif path == "/api/hotword-rules":
+            self._handle_get_hotword_rules()
         else:
             self._send_error_json(404, "未找到")
 
@@ -59,6 +63,10 @@ class _ConfigHandler(BaseHTTPRequestHandler):
 
         if path == "/api/config":
             self._handle_put_config()
+        elif path == "/api/hotwords":
+            self._handle_put_hotwords()
+        elif path == "/api/hotword-rules":
+            self._handle_put_hotword_rules()
         else:
             self._send_error_json(404, "未找到")
 
@@ -79,6 +87,22 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._handle_record_toggle()
         elif path == "/api/test/transcribe":
             self._handle_test_transcribe()
+        elif path == "/api/hotwords":
+            self._handle_post_hotword()
+        elif path == "/api/hotword-rules":
+            self._handle_post_hotword_rule()
+        else:
+            self._send_error_json(404, "未找到")
+
+    def do_DELETE(self):
+        """处理 DELETE 请求"""
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/api/hotwords":
+            self._handle_delete_hotwords()
+        elif path == "/api/hotword-rules":
+            self._handle_delete_hotword_rules()
         else:
             self._send_error_json(404, "未找到")
 
@@ -263,6 +287,269 @@ class _ConfigHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_error_json(500, f"获取设备列表失败: {e}")
 
+    # ─── 热词管理 API ───
+
+    def _handle_get_hotwords(self):
+        """GET /api/hotwords — 返回热词列表"""
+        try:
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_json(200, {"ok": True, "hotwords": [], "count": 0, "file": "hotwords.txt"})
+                return
+            entries = hm.get_all_entries()
+            self._send_json(200, {
+                "ok": True,
+                "hotwords": [
+                    {"source": e.source, "target": e.target, "category": e.category,
+                     "text_replace": e.text_replace, "model_hotword": e.model_hotword}
+                    for e in entries
+                ],
+                "count": len(entries),
+                "file": "hotwords.txt",
+            })
+        except Exception as e:
+            self._send_error_json(500, f"获取热词失败: {e}")
+
+    def _handle_put_hotwords(self):
+        """PUT /api/hotwords — 整体替换热词文件（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            body = self._read_body()
+            if body is None:
+                return
+            data = json.loads(body)
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            items = data.get("hotwords", [])
+            if not isinstance(items, list):
+                self._send_error_json(400, "hotwords 必须是数组")
+                return
+            # 重建热词列表
+            hm._entries = []
+            for item in items:
+                source = str(item.get("source", "")).strip()
+                if not source:
+                    continue
+                target = str(item.get("target", "")).strip() or source
+                category = str(item.get("category", "")).strip()
+                from core.hotword import HotwordEntry
+                hm._entries.append(HotwordEntry(
+                    source=source, target=target, category=category,
+                    text_replace=True, model_hotword=(source == target),
+                ))
+            # 保存并 reload
+            if not hm.save_to_file():
+                self._send_error_json(500, "保存热词文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": "热词已保存并重载", "count": len(hm._entries)})
+        except json.JSONDecodeError:
+            self._send_error_json(400, "请求体不是有效的 JSON")
+        except Exception as e:
+            self._send_error_json(500, f"保存热词失败: {e}")
+
+    def _handle_post_hotword(self):
+        """POST /api/hotwords — 追加单条热词（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            body = self._read_body()
+            if body is None:
+                return
+            data = json.loads(body)
+            source = str(data.get("source", "")).strip()
+            target = str(data.get("target", "")).strip()
+            # 校验
+            if not source:
+                self._send_error_json(400, "source 不能为空且长度 2-100")
+                return
+            if len(source) < 2 or len(source) > 100:
+                self._send_error_json(400, "source 长度须在 2-100 之间")
+                return
+            if '\n' in source or '\r' in source:
+                self._send_error_json(400, "source 不能包含换行符")
+                return
+            if len(target) > 200:
+                self._send_error_json(400, "target 长度不能超过 200")
+                return
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            hm.add_hotword(source, target)
+            if not hm.save_to_file():
+                self._send_error_json(500, "保存热词文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": "热词已追加"})
+        except json.JSONDecodeError:
+            self._send_error_json(400, "请求体不是有效的 JSON")
+        except Exception as e:
+            self._send_error_json(500, f"追加热词失败: {e}")
+
+    def _handle_delete_hotwords(self):
+        """DELETE /api/hotwords — 清空热词（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            hm._entries = []
+            if not hm.save_to_file():
+                self._send_error_json(500, "保存热词文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": "热词已清空"})
+        except Exception as e:
+            self._send_error_json(500, f"清空热词失败: {e}")
+
+    def _handle_get_hotword_rules(self):
+        """GET /api/hotword-rules — 返回正则规则列表"""
+        try:
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_json(200, {"ok": True, "rules": [], "count": 0})
+                return
+            rules = hm.get_all_rules()
+            self._send_json(200, {
+                "ok": True,
+                "rules": [{"pattern": p, "replacement": r} for p, r in rules],
+                "count": len(rules),
+            })
+        except Exception as e:
+            self._send_error_json(500, f"获取正则规则失败: {e}")
+
+    def _handle_put_hotword_rules(self):
+        """PUT /api/hotword-rules — 整体替换规则文件（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            body = self._read_body()
+            if body is None:
+                return
+            data = json.loads(body)
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            items = data.get("rules", [])
+            if not isinstance(items, list):
+                self._send_error_json(400, "rules 必须是数组")
+                return
+            hm._rules = []
+            hm._compiled_rules = []
+            import re as re_mod
+            success = 0
+            for item in items:
+                pattern = str(item.get("pattern", "")).strip()
+                replacement = str(item.get("replacement", "")).strip()
+                if not pattern:
+                    continue
+                if not hm._validate_regex_complexity(pattern):
+                    logger.warning("正则规则过于复杂，跳过: %s", pattern[:50])
+                    continue
+                try:
+                    compiled = re_mod.compile(pattern)
+                    hm._rules.append((pattern, replacement))
+                    hm._compiled_rules.append((compiled, replacement))
+                    success += 1
+                except re_mod.error as e:
+                    logger.warning("正则编译失败，跳过: %s, error=%s", pattern[:50], e)
+            if not hm.save_rules_to_file():
+                self._send_error_json(500, "保存规则文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": f"规则已保存并重载", "count": success})
+        except json.JSONDecodeError:
+            self._send_error_json(400, "请求体不是有效的 JSON")
+        except Exception as e:
+            self._send_error_json(500, f"保存规则失败: {e}")
+
+    def _handle_post_hotword_rule(self):
+        """POST /api/hotword-rules — 追加单条规则（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            body = self._read_body()
+            if body is None:
+                return
+            data = json.loads(body)
+            pattern = str(data.get("pattern", "")).strip()
+            replacement = str(data.get("replacement", "")).strip()
+            if not pattern:
+                self._send_error_json(400, "pattern 不能为空")
+                return
+            if len(pattern) > 500:
+                self._send_error_json(400, "pattern 长度不能超过 500")
+                return
+            if len(replacement) > 200:
+                self._send_error_json(400, "replacement 长度不能超过 200")
+                return
+            import re as re_mod
+            if not re_mod.compile(pattern):
+                self._send_error_json(400, "pattern 不是有效的正则表达式")
+                return
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            if not hm.add_rule(pattern, replacement):
+                self._send_error_json(400, "规则过于复杂或编译失败")
+                return
+            if not hm.save_rules_to_file():
+                self._send_error_json(500, "保存规则文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": "规则已追加"})
+        except re_mod.error:
+            self._send_error_json(400, "pattern 不是有效的正则表达式")
+        except json.JSONDecodeError:
+            self._send_error_json(400, "请求体不是有效的 JSON")
+        except Exception as e:
+            self._send_error_json(500, f"追加规则失败: {e}")
+
+    def _handle_delete_hotword_rules(self):
+        """DELETE /api/hotword-rules — 清空规则（需 token）"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            hm = self._server_ctx._get_hotword_manager()
+            if hm is None:
+                self._send_error_json(503, "热词系统未启用")
+                return
+            hm._rules = []
+            hm._compiled_rules = []
+            if not hm.save_rules_to_file():
+                self._send_error_json(500, "保存规则文件失败")
+                return
+            tp = self._server_ctx._get_text_pipeline()
+            if tp:
+                tp.schedule_reload()
+            self._send_json(200, {"ok": True, "message": "规则已清空"})
+        except Exception as e:
+            self._send_error_json(500, f"清空规则失败: {e}")
+
     def _verify_token(self) -> bool:
         """校验 URL 中的 token 参数"""
         parsed = urlparse(self.path)
@@ -312,10 +599,11 @@ class ConfigWebServer:
         on_config_changed: 配置变更回调
     """
 
-    def __init__(self, config, engine=None, stats=None, on_config_changed: Optional[Callable] = None):
+    def __init__(self, config, engine=None, stats=None, hotword_manager=None, on_config_changed: Optional[Callable] = None):
         self._config = config
         self._engine = engine
         self._stats = stats
+        self._hotword_manager = hotword_manager
         self._on_config_changed = on_config_changed
         self._token = secrets.token_hex(16)
         self._config_url = f"http://127.0.0.1:{config.web.port}?token={self._token}"
@@ -365,6 +653,20 @@ class ConfigWebServer:
     # ============================================================
     # 供 Handler 调用的方法
     # ============================================================
+
+    def _get_hotword_manager(self):
+        """获取 HotwordManager 实例。"""
+        if self._hotword_manager is not None:
+            return self._hotword_manager
+        if self._engine and hasattr(self._engine, '_hotword_manager'):
+            return self._engine._hotword_manager
+        return None
+
+    def _get_text_pipeline(self):
+        """获取 TextPipeline 实例。"""
+        if self._engine and hasattr(self._engine, '_text_pipeline'):
+            return self._engine._text_pipeline
+        return None
 
     def _get_config_dict(self) -> dict:
         """获取当前配置字典"""
