@@ -1,8 +1,9 @@
-"""文本处理管线 — 正则替换 → 热词替换。
+"""文本处理管线 — 音素纠错 → 正则替换 → 热词替换。
 
 仅消费 HotwordManager 的数据，不自己加载文件。
 Engine 通过 process() 方法调用。
 
+v2.0 — 新增音素匹配纠错层（第一层）
 v1.0 — 对应设计文档 v3.0
 """
 
@@ -14,6 +15,13 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from core.hotword import HotwordManager
 
+# 音素纠错器延迟导入（pypinyin 可能不可用）
+try:
+    from core.phoneme.phoneme_corrector import PhonemeCorrector
+    _PHONEME_AVAILABLE = True
+except ImportError:
+    _PHONEME_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +30,7 @@ class ProcessResult:
     """管线处理结果"""
     text: str              # 处理后的文本
     is_changed: bool       # 是否被修改（用于日志）
+    phoneme_matches: list  # 音素匹配结果（可选，默认空列表）
 
 
 class TextPipeline:
@@ -38,7 +47,8 @@ class TextPipeline:
     _DEBOUNCE_INTERVAL = 0.5  # 500ms
 
     def __init__(self, hotword_manager: HotwordManager,
-                 enabled: bool = True, case_sensitive: bool = False):
+                 enabled: bool = True, case_sensitive: bool = False,
+                 phoneme_threshold: float = 0.7, phoneme_enabled: bool = True):
         self._hotword_manager = hotword_manager
         self._regex_rules: List[Tuple[re.Pattern, str]] = []
         self._hotword_regex: Optional[re.Pattern] = None
@@ -48,6 +58,21 @@ class TextPipeline:
         self._case_sensitive: bool = case_sensitive
         self._on_reload_callbacks: List[Callable] = []
         self._reload_timer: Optional[threading.Timer] = None
+        self._last_phoneme_matches: list = []
+
+        # 音素纠错器
+        self._phoneme_corrector: Optional['PhonemeCorrector'] = None
+        if _PHONEME_AVAILABLE and phoneme_enabled:
+            try:
+                self._phoneme_corrector = PhonemeCorrector(
+                    threshold=phoneme_threshold,
+                    enabled=True,
+                )
+            except Exception as e:
+                logger.warning("音素纠错器创建失败，已降级: %s", e)
+                self._phoneme_corrector = None
+        elif not _PHONEME_AVAILABLE:
+            logger.debug("pypinyin 不可用，音素纠错已禁用")
 
         # 初始加载
         self.reload()
@@ -79,6 +104,9 @@ class TextPipeline:
             logger.error("Pipeline reload 失败，保留旧数据: %s", e)
             # 不替换引用，保留旧数据继续使用
 
+        # 加载音素热词
+        self._load_phoneme_hotwords()
+
         # 触发回调（如同步 FunASR 热词）
         for cb in self._on_reload_callbacks:
             try:
@@ -105,24 +133,29 @@ class TextPipeline:
         self._on_reload_callbacks.append(callback)
 
     def process(self, text: str) -> ProcessResult:
-        """执行处理链：正则替换 → 热词替换。
+        """执行处理链：音素纠错 → 正则替换 → 热词替换。
 
         顶层 try-catch，异常时降级返回原文。
         """
         if not self._enabled or not text:
-            return ProcessResult(text=text, is_changed=False)
+            return ProcessResult(text=text, is_changed=False, phoneme_matches=[])
 
         original = text
         try:
+            # 第一层：音素纠错（毫秒级，模糊匹配）
+            text, phoneme_matches = self._apply_phoneme(text)
+            # 第二层：正则规则（微秒级，精确映射）
             text = self._apply_regex(text)
+            # 第三层：文本替换（微秒级，精确替换）
             text = self._apply_hotwords(text)
             return ProcessResult(
                 text=text,
-                is_changed=(text != original)
+                is_changed=(text != original),
+                phoneme_matches=phoneme_matches,
             )
         except Exception as e:
             logger.error("Pipeline 处理异常，降级返回原文: %s", e, exc_info=True)
-            return ProcessResult(text=original, is_changed=False)
+            return ProcessResult(text=original, is_changed=False, phoneme_matches=[])
 
     @property
     def enabled(self) -> bool:
@@ -134,6 +167,32 @@ class TextPipeline:
         logger.info("Pipeline %s", "启用" if value else "禁用")
 
     # ─── 内部方法 ───
+
+    def _load_phoneme_hotwords(self) -> None:
+        """加载音素热词文件。"""
+        if not self._phoneme_corrector or not self._phoneme_corrector.enabled:
+            return
+        phoneme_path = self._hotword_manager.resolve_file_path('hotwords-phoneme.txt')
+        if phoneme_path:
+            try:
+                count = self._phoneme_corrector.update_from_file(phoneme_path)
+                logger.info("音素热词加载完成: %d 条", count)
+            except Exception as e:
+                logger.warning("音素热词加载失败，已降级: %s", e)
+
+    def _apply_phoneme(self, text: str) -> tuple:
+        """音素纠错层。"""
+        if not self._phoneme_corrector or not self._phoneme_corrector.enabled:
+            self._last_phoneme_matches = []
+            return text, []
+        try:
+            result = self._phoneme_corrector.correct(text)
+            self._last_phoneme_matches = result.matches
+            return result.text, result.matches
+        except Exception as e:
+            logger.warning("音素纠错异常，跳过: %s", e)
+            self._last_phoneme_matches = []
+            return text, []
 
     def _apply_regex(self, text: str) -> str:
         """逐条应用正则规则。单条异常不影响其他规则。"""
