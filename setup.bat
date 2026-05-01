@@ -1,116 +1,237 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
-title 语音输入工具 - 环境准备
-
-echo ============================================
-echo   语音输入工具 - 环境准备脚本
-echo ============================================
-echo.
-
-:: 检查管理员权限
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 需要管理员权限！
-    echo 请右键此文件 → "以管理员身份运行"
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] 管理员权限确认
-
-:: 检查 Python
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 未找到 Python！
-    echo 请安装 Python 3.11+ : https://www.python.org/downloads/
-    echo 安装时勾选 "Add Python to PATH"
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] Python 已安装
-python --version
-
-:: 检查 VC++ Runtime（简单提示）
-echo.
-echo [提示] 如果后续模型加载失败，请安装 VC++ Runtime:
-echo https://aka.ms/vs/17/release/vc_redist.x64.exe
-echo.
-
-:: 升级 pip
-echo [1/5] 升级 pip...
-python -m pip install --upgrade pip --quiet
-
-:: 安装基础依赖
-echo [2/5] 安装基础依赖...
-pip install -r requirements.txt --quiet
-if %errorlevel% neq 0 (
-    echo [错误] 基础依赖安装失败
+cd /d "%~dp0" || (
+    echo [ERROR] Failed to change directory.
     pause
     exit /b 1
 )
 
-:: 安装 Windows 依赖
-echo [3/5] 安装 Windows 依赖...
-pip install -r requirements_windows.txt --quiet
-if %errorlevel% neq 0 (
-    echo [错误] Windows 依赖安装失败
+if not exist logs mkdir logs
+set "LOGFILE=%~dp0logs\setup.log"
+
+echo ================================================== > "%LOGFILE%" 2>&1
+echo   VoiceInputTool - Setup Log >> "%LOGFILE%" 2>&1
+echo   Date: %date% %time% >> "%LOGFILE%" 2>&1
+echo ================================================== >> "%LOGFILE%" 2>&1
+
+echo ==================================================
+echo   VoiceInputTool - Environment Setup
+echo   Log: logs\setup.log
+echo ==================================================
+echo.
+
+:: Step 1: Check Python version
+echo [1/6] Checking Python...
+where python >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python not found. Please install Python 3.11+
+    echo https://www.python.org/downloads/
+    echo [ERROR] Python not found >> "%LOGFILE%" 2>&1
     pause
     exit /b 1
 )
 
-:: 可选：安装 FunASR（中文极速引擎）
-echo [4/5] FunASR 引擎（可选，中文更快）...
-echo.
-echo   FunASR Paraformer 中文识别速度约 10x 实时（比 Whisper 快）
-echo   但需要 Visual C++ Build Tools 编译 editdistance
-echo.
-set /p INSTALL_FUNASR="是否安装 FunASR？(y/N): "
-if /i "%INSTALL_FUNASR%"=="y" (
-    echo 正在安装 funasr modelscope...
-    pip install funasr modelscope --quiet 2>nul
-    if %errorlevel% neq 0 (
-        echo [警告] FunASR 安装失败（可能缺少 C++ 编译工具）
-        echo.
-        echo 解决方案：
-        echo   1. 安装 Visual C++ Build Tools:
-        echo      https://visualstudio.microsoft.com/visual-cpp-build-tools/
-        echo      （安装时勾选 "C++ 桌面开发" 工作负载）
-        echo.
-        echo   2. 或使用 conda 安装（有预编译包）:
-        echo      conda install -c conda-forge editdistance
-        echo      pip install funasr modelscope
-        echo.
-        echo   3. 或跳过 FunASR，使用 faster-whisper（已安装）
-        echo.
-        echo [提示] 不影响程序运行，只是不能用 FunASR 引擎
-    ) else (
-        echo [OK] FunASR 安装成功
+for /f "tokens=1,2" %%a in ('python -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2^>^&1') do (
+    set "PYMAJ=%%a"
+    set "PYMIN=%%b"
+)
+
+if "!PYMAJ!"=="" (
+    echo [ERROR] Failed to detect Python version.
+    echo [ERROR] Failed to detect Python version >> "%LOGFILE%" 2>&1
+    pause
+    exit /b 1
+)
+echo        Python !PYMAJ!.!PYMIN! detected
+echo        Python !PYMAJ!.!PYMIN! detected >> "%LOGFILE%" 2>&1
+
+:: Step 2: Create venv
+set "NEEDS_UV_311=0"
+if !PYMAJ! LSS 3 (
+    echo [ERROR] Python version too old. Need Python 3.11 - 3.13.
+    pause
+    exit /b 1
+)
+if !PYMAJ! GTR 3 (
+    echo [WARN] Python !PYMAJ!.!PYMIN! not compatible. Will use uv with Python 3.11.
+    set "NEEDS_UV_311=1"
+)
+if !PYMAJ!==3 if !PYMIN! LSS 11 (
+    echo [ERROR] Python 3.!PYMIN! is too old. Need Python 3.11 - 3.13.
+    pause
+    exit /b 1
+)
+if !PYMAJ!==3 if !PYMIN! GEQ 14 (
+    echo [WARN] Python 3.!PYMIN! may have issues. Will use uv with Python 3.11.
+    set "NEEDS_UV_311=1"
+)
+
+echo [2/6] Creating virtual environment...
+if exist .venv (
+    echo        venv exists, reusing
+    echo        venv exists >> "%LOGFILE%" 2>&1
+) else (
+    set "VENV_CREATED=0"
+    if "!NEEDS_UV_311!"=="1" goto :create_with_uv
+
+    where uv >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo        Trying uv with Python 3.11...
+        uv venv --python 3.11 >nul 2>&1
+        if !errorlevel! equ 0 (
+            set "VENV_CREATED=1"
+            echo        venv created with uv (Python 3.11)
+            echo        venv created with uv >> "%LOGFILE%" 2>&1
+        )
+    )
+
+    if "!VENV_CREATED!"=="0" (
+        echo        Creating venv (Python 3.!PYMIN!)...
+        python -m venv .venv
+        if !errorlevel! neq 0 (
+            echo [ERROR] Failed to create venv
+            echo [ERROR] Failed to create venv >> "%LOGFILE%" 2>&1
+            pause
+            exit /b 1
+        )
+        echo        venv created >> "%LOGFILE%" 2>&1
+    )
+    goto :venv_done
+
+    :create_with_uv
+    where uv >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo        Installing uv...
+        powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex" 2>nul
+        set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;%PATH%"
+    )
+    where uv >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo [ERROR] Cannot install uv. Please install Python 3.11 manually:
+        echo        https://www.python.org/downloads/
+        echo [ERROR] Cannot install uv >> "%LOGFILE%" 2>&1
+        pause
+        exit /b 1
+    )
+    uv venv --python 3.11
+    if !errorlevel! neq 0 (
+        echo [ERROR] Cannot create Python 3.11 venv.
+        echo [ERROR] Cannot create Python 3.11 venv >> "%LOGFILE%" 2>&1
+        pause
+        exit /b 1
+    )
+    echo        venv created with uv (Python 3.11) >> "%LOGFILE%" 2>&1
+
+    :venv_done
+)
+
+:: Step 3: Ensure pip
+echo [3/6] Ensuring pip in venv...
+.venv\Scripts\python.exe -c "import pip" >nul 2>&1
+if !errorlevel! neq 0 (
+    where uv >nul 2>&1
+    if !errorlevel! equ 0 (
+        uv pip install pip >nul 2>&1
+    )
+    .venv\Scripts\python.exe -c "import pip" >nul 2>&1
+    if !errorlevel! neq 0 (
+        .venv\Scripts\python.exe -m ensurepip --default-pip >nul 2>&1
+    )
+    .venv\Scripts\python.exe -c "import pip" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo [ERROR] Cannot install pip. Try: .venv\Scripts\python.exe -m ensurepip
+        echo [ERROR] Cannot install pip >> "%LOGFILE%" 2>&1
+        pause
+        exit /b 1
+    )
+    echo        pip installed OK
+)
+echo        pip OK
+echo        pip OK >> "%LOGFILE%" 2>&1
+
+:: Step 4: Install base + platform dependencies
+echo [4/6] Installing dependencies...
+where uv >nul 2>&1
+if !errorlevel! neq 0 (
+    .venv\Scripts\python.exe -m pip install -r "%~dp0requirements\base.txt" -q 2>>"%LOGFILE%"
+    if !errorlevel! neq 0 echo [WARN] Base deps failed via pip, trying fallback...
+    .venv\Scripts\python.exe -m pip install -r "%~dp0requirements\windows.txt" -q 2>>"%LOGFILE%"
+) else (
+    uv pip install -r "%~dp0requirements\base.txt" -q 2>>"%LOGFILE%"
+    if !errorlevel! neq 0 (
+        echo [WARN] Base deps failed via uv, pip fallback...
+        .venv\Scripts\python.exe -m pip install -r "%~dp0requirements\base.txt" -q 2>>"%LOGFILE%"
+    )
+    uv pip install -r "%~dp0requirements\windows.txt" -q 2>>"%LOGFILE%"
+    if !errorlevel! neq 0 (
+        .venv\Scripts\python.exe -m pip install -r "%~dp0requirements\windows.txt" -q 2>>"%LOGFILE%"
+    )
+)
+echo        Dependencies installed
+echo        Dependencies installed >> "%LOGFILE%" 2>&1
+
+:: Step 5: Optional engine deps (FunASR / Qwen3-ASR)
+echo [5/6] Checking optional engines...
+echo [5/6] Checking optional engines... >> "%LOGFILE%" 2>&1
+
+.venv\Scripts\python.exe -c "import funasr" >nul 2>&1
+if !errorlevel! neq 0 (
+    if exist "%~dp0config.yaml" (
+        findstr /i "funasr" "%~dp0config.yaml" >nul 2>&1
+        if !errorlevel! equ 0 (
+            echo        Installing FunASR (may take a few minutes)...
+            where uv >nul 2>&1
+            if !errorlevel! neq 0 (
+                .venv\Scripts\python.exe -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu -q 2>>"%LOGFILE%"
+                .venv\Scripts\python.exe -m pip install funasr modelscope -q 2>>"%LOGFILE%"
+            ) else (
+                uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cpu -q 2>>"%LOGFILE%"
+                uv pip install funasr modelscope -q 2>>"%LOGFILE%"
+            )
+            if !errorlevel! neq 0 echo [WARN] FunASR install failed, will fallback to faster-whisper
+        )
     )
 ) else (
-    echo [跳过] FunASR 安装
+    echo        FunASR OK
 )
 
-:: 下载 STT 模型
-echo [5/5] 下载 STT 模型 (large-v3-turbo, ~800MB)...
-echo 这可能需要几分钟，请耐心等待...
-python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo', download_root='./models', device='cpu', compute_type='int8'); print('模型下载完成')"
-if %errorlevel% neq 0 (
-    echo [错误] 模型下载失败，请检查网络连接
-    echo 可以稍后手动运行:
-    echo python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo', download_root='./models')"
+.venv\Scripts\python.exe -c "import qwen_asr" >nul 2>&1
+if !errorlevel! equ 0 (
+    echo        Qwen3-ASR OK
+)
+
+:: Step 6: Verify core imports
+echo [6/6] Verifying core dependencies...
+set "VERIFY_FAIL=0"
+
+for %%M in (yaml faster_whisper sounddevice scipy pypinyin) do (
+    .venv\Scripts\python.exe -c "import %%M" >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo   [OK] %%M
+    ) else (
+        echo   [FAIL] %%M
+        set "VERIFY_FAIL=1"
+    )
+)
+
+echo. >> "%LOGFILE%" 2>&1
+echo Setup complete at %date% %time% >> "%LOGFILE%" 2>&1
+
+if "!VERIFY_FAIL!"=="1" (
+    echo.
+    echo [WARN] Some verifications failed! Check logs\setup.log
+    echo        You can still try running, but some features may not work.
     pause
     exit /b 1
 )
 
 echo.
-echo ============================================
-echo   安装完成！
-echo   请运行 run.bat 启动程序
-echo ============================================
-echo.
-echo 引擎选择（Web 配置页）：
-echo   - faster-whisper: 多语言，已安装
-echo   - funasr:         中文极速，可选安装
-echo.
+echo ==================================================
+echo   Setup complete!
+echo   Next: run.bat to start
+echo   Log:  logs\setup.log
+echo ==================================================
 pause
+endlocal
+exit /b 0

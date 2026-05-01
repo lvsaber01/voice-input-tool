@@ -26,8 +26,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements_windows.txt
+        pip install -r requirements/base.txt
+        pip install -r requirements/windows.txt
         pip install pytest
     
     - name: Syntax check
@@ -165,8 +165,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements_macos.txt
+        pip install -r requirements/base.txt
+        pip install -r requirements/macos.txt
     
     - name: macOS import test
       run: |

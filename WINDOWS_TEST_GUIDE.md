@@ -23,10 +23,10 @@
 cd C:\Users\Administrator\PROJECT\voice-input-tool
 
 # 安装基础依赖
-pip install -r requirements.txt
+pip install -r requirements/base.txt
 
 # 安装 Windows 依赖
-pip install -r requirements_windows.txt
+pip install -r requirements/windows.txt
 ```
 
 **预期输出**：所有包 Successfully installed

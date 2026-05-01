@@ -25,8 +25,8 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        pip install -r requirements.txt
-        pip install -r requirements_windows.txt
+        pip install -r requirements/base.txt
+        pip install -r requirements/windows.txt
         pip install "ctranslate2>=4.0,<5.0" "faster-whisper>=1.1.0"
     
     - name: Verify faster-whisper
@@ -78,11 +78,11 @@ jobs:
         # 复制源码
         cp -r main.py config.py core/ gui/ platform_adapter/ dist/VoiceInputTool-Source/
         # 复制配置和依赖
-        cp requirements.txt requirements_windows.txt config.example.yaml dist/VoiceInputTool-Source/
-        [ -f requirements_macos.txt ] && cp requirements_macos.txt dist/VoiceInputTool-Source/
+        cp -r requirements/ config.example.yaml dist/VoiceInputTool-Source/
+        cp hotwords.txt hot-rules.txt hotwords-phoneme.txt dist/VoiceInputTool-Source/ 2>/dev/null || true
         cp -r models/ dist/VoiceInputTool-Source/ 2>/dev/null || mkdir -p dist/VoiceInputTool-Source/models && cp models/README.md dist/VoiceInputTool-Source/models/ 2>/dev/null || true
         # 复制启动脚本
-        cp start.bat start.sh setup_full.bat run_full.bat dist/VoiceInputTool-Source/
+        cp setup.bat run.bat setup.sh run.sh dist/VoiceInputTool-Source/
         # 复制 spec 和 hooks（供手动 exe 打包用）
         cp -r voice-input-tool.spec build/ dist/VoiceInputTool-Source/
         # 打包

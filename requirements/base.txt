@@ -1,5 +1,6 @@
 # Cross-platform dependencies
 # Requires: Python >=3.11, <3.14
+pypinyin>=0.50.0
 sounddevice>=0.4.6
 numpy>=1.24.0,<2.0
 faster-whisper>=1.1.0

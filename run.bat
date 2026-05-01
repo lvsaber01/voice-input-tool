@@ -1,32 +1,59 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
-title 语音输入工具
+cd /d "%~dp0" || (
+    echo [ERROR] Failed to change directory.
+    pause
+    exit /b 1
+)
 
-:: 检查管理员权限
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 需要管理员权限！
-    echo 请右键此文件 → "以管理员身份运行"
+if not exist .venv (
+    echo [ERROR] .venv not found.
+    echo        Please run setup.bat first to install dependencies.
+    echo.
+    pause
+    exit /b 1
+)
+
+if not exist .venv\Scripts\python.exe (
+    echo [ERROR] .venv\Scripts\python.exe not found.
+    echo        The virtual environment may be corrupted.
+    echo        Delete .venv folder and re-run setup.bat.
+    echo.
+    pause
+    exit /b 1
+)
+
+if not exist "%~dp0main.py" (
+    echo [ERROR] main.py not found in %~dp0
+    echo        Please check the installation directory.
     echo.
     pause
     exit /b 1
 )
 
 if not exist logs mkdir logs
+set "LOGFILE=%~dp0logs\run.log"
 
-:: 启动程序
-python main.py 2>logs\stderr.log
+echo ================================================== > "%LOGFILE%" 2>&1
+echo   VoiceInputTool - Run Log >> "%LOGFILE%" 2>&1
+echo   Date: %date% %time% >> "%LOGFILE%" 2>&1
+echo ================================================== >> "%LOGFILE%" 2>&1
 
-set EXIT_CODE=%errorlevel%
-echo [%date% %time%] 退出码: %EXIT_CODE% >> logs\run.log
+echo Starting VoiceInputTool...
+echo Log: logs\run.log
+echo.
 
-if %EXIT_CODE% neq 0 (
+.venv\Scripts\python.exe "%~dp0main.py" >> "%LOGFILE%" 2>&1
+
+if errorlevel 1 (
     echo.
-    echo [错误] 程序异常退出 (退出码: %EXIT_CODE%)
-    echo 日志目录: logs\
-    echo   - app.log    运行日志
-    echo   - crash.log  崩溃日志  
-    echo   - stderr.log 错误输出
-    echo.
-    pause
+    echo [ERROR] Program exited abnormally.
+    echo        Check logs\run.log for details.
 )
+
+echo.
+echo Program exited. >> "%LOGFILE%" 2>&1
+pause
+endlocal
+exit /b 0

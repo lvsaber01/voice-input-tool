@@ -88,8 +88,8 @@ brew install python@3.11
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements_macos.txt
+pip install -r requirements/base.txt
+pip install -r requirements/macos.txt
 ```
 
 #### 4. 下载 STT 模型
@@ -425,9 +425,10 @@ voice-input-tool/
 ├── models/              # STT 模型
 ├── hotwords.txt         # 热词数据文件
 ├── hot-rules.txt        # 正则规则文件
-├── requirements.txt     # 跨平台基础依赖
-├── requirements_windows.txt # Windows 特定依赖
-├── requirements_macos.txt   # macOS 特定依赖
+├── requirements/            # 依赖文件目录
+│   ├── base.txt             # 跨平台基础依赖
+│   ├── windows.txt          # Windows 特定依赖
+│   └── macos.txt            # macOS 特定依赖
 └── test_e2e.py          # 端到端测试脚本
 ```
 

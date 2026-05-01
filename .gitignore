@@ -4,11 +4,10 @@ __pycache__/
 *$py.class
 *.egg-info/
 dist/
-build/
 *.egg
 
 # Models (too large for git)
-models/small/
+models/
 
 # Config (user-specific)
 config.yaml
@@ -25,6 +24,13 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Stats (runtime artifacts)
+stats/
+
+# Reports (review artifacts)
+reports/
 
 # Python embeddable (packaging)
 python/
@@ -32,6 +38,7 @@ python/
 # Virtual environments
 venv/
 .venv/
-models/
+
+# Test artifacts
+.pytest_cache/
 test_audio.*
-.venv/
