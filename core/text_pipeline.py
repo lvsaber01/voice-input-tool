@@ -60,6 +60,9 @@ class TextPipeline:
         self._reload_timer: Optional[threading.Timer] = None
         self._last_phoneme_matches: list = []
 
+        # 标点恢复器（由 engine.py 通过 setter 注入）
+        self._punctuation_restorer = None
+
         # 音素纠错器
         self._phoneme_corrector: Optional['PhonemeCorrector'] = None
         if _PHONEME_AVAILABLE and phoneme_enabled:
@@ -78,6 +81,10 @@ class TextPipeline:
         self.reload()
 
     # ─── 公开接口 ───
+
+    def set_punctuation_restorer(self, restorer) -> None:
+        """设置标点恢复器（engine.py 初始化后调用）。"""
+        self._punctuation_restorer = restorer
 
     def reload(self):
         """从 HotwordManager 重新获取数据，原子替换引用。"""
@@ -133,7 +140,7 @@ class TextPipeline:
         self._on_reload_callbacks.append(callback)
 
     def process(self, text: str) -> ProcessResult:
-        """执行处理链：音素纠错 → 正则替换 → 热词替换。
+        """执行处理链：标点恢复 → 音素纠错 → 正则替换 → 热词替换。
 
         顶层 try-catch，异常时降级返回原文。
         """
@@ -142,6 +149,8 @@ class TextPipeline:
 
         original = text
         try:
+            # 第零层：标点恢复（无标点 STT 模式专用）
+            text = self._apply_punctuation(text)
             # 第一层：音素纠错（毫秒级，模糊匹配）
             text, phoneme_matches = self._apply_phoneme(text)
             # 第二层：正则规则（微秒级，精确映射）
@@ -156,7 +165,6 @@ class TextPipeline:
         except Exception as e:
             logger.error("Pipeline 处理异常，降级返回原文: %s", e, exc_info=True)
             return ProcessResult(text=original, is_changed=False, phoneme_matches=[])
-
     @property
     def enabled(self) -> bool:
         return self._enabled
@@ -167,6 +175,16 @@ class TextPipeline:
         logger.info("Pipeline %s", "启用" if value else "禁用")
 
     # ─── 内部方法 ───
+
+    def _apply_punctuation(self, text: str) -> str:
+        """标点恢复层（第零层）。"""
+        if not self._punctuation_restorer:
+            return text
+        try:
+            return self._punctuation_restorer.restore(text)
+        except Exception as e:
+            logger.warning("标点恢复异常，跳过: %s", e)
+            return text
 
     def _load_phoneme_hotwords(self) -> None:
         """加载音素热词文件。"""

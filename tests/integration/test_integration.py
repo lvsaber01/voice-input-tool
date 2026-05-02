@@ -720,5 +720,180 @@ class TestEventBusAsync(unittest.TestCase):
         self.assertEqual(len(results), 1)
 
 
+# ================================================================
+# 9. 后处理增强集成测试（F1+F2+F3）
+# ================================================================
+
+class TestPostprocessIntegration(unittest.TestCase):
+    """F1 Emoji + F2 FileWatcher + F3 Punctuation 联动集成测试。"""
+
+    def test_emoji_cleanup_in_pipeline(self):
+        """TextPipeline 正确处理含 emoji 文本（F1 集成）"""
+        from core.stt_funasr import FunASREngine
+        from core.text_pipeline import TextPipeline, ProcessResult
+        from core.hotword import HotwordManager
+
+        # 模拟 SenseVoice 输出含 emoji
+        raw = "你好😊世界<|EMO_HAPPY|>测试😂"
+        cleaned = FunASREngine._postprocess_sensevoice(raw)
+
+        # 确认 emoji 和标记已被清除
+        self.assertNotIn("😊", cleaned)
+        self.assertNotIn("😂", cleaned)
+        self.assertNotIn("EMO", cleaned)
+        self.assertNotIn("<|", cleaned)
+        self.assertIn("你好", cleaned)
+        self.assertIn("世界", cleaned)
+        self.assertIn("测试", cleaned)
+
+        # 清理后的文本进入 TextPipeline 不出错
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_file = os.path.join(tmpdir, "hotwords.txt")
+            with open(hw_file, "w") as f:
+                f.write("你好世界\n")
+            hm = HotwordManager(hotwords_file=hw_file, rules_file="")
+            tp = TextPipeline(hotword_manager=hm, enabled=True, case_sensitive=False)
+            result = tp.process(cleaned)
+            self.assertIsInstance(result, ProcessResult)
+            self.assertIn("你好", result.text)
+
+    def test_file_watcher_lifecycle(self):
+        """FileWatcher 启动→监控→停止完整生命周期（F2 集成）"""
+        from core.file_watcher import FileWatcher
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "test.txt")
+            with open(test_file, "w") as f:
+                f.write("initial")
+
+            callback = MagicMock()
+            fw = FileWatcher({test_file: callback}, debounce_seconds=0.3)
+
+            # 启动
+            fw.start()
+            self.assertTrue(fw.is_watching)
+
+            # 运行中
+            time.sleep(0.5)
+            self.assertTrue(fw.is_watching)
+
+            # 停止
+            fw.stop()
+            self.assertFalse(fw.is_watching)
+            self.assertFalse(fw._started)
+
+            # 二次 stop 不崩溃
+            fw.stop()
+
+    def test_punctuation_restorer_lifecycle(self):
+        """PunctuationRestorer 初始化→使用→shutdown（F3 集成）"""
+        from core.punctuation import PunctuationRestorer
+
+        r = PunctuationRestorer(enabled=True)
+
+        # 初始状态
+        self.assertFalse(r.is_loaded)
+
+        # 注入 mock 模型
+        mock_model = MagicMock()
+        mock_model.generate.return_value = [{"text": "你好，世界。"}]
+        r.set_shared_model(mock_model)
+        self.assertTrue(r.is_loaded)
+
+        # 使用
+        result = r.restore("你好世界")
+        self.assertEqual(result, "你好，世界。")
+
+        # 禁用后返回原文
+        r._enabled = False
+        self.assertEqual(r.restore("你好世界"), "你好世界")
+
+        # 启用回来
+        r._enabled = True
+        self.assertEqual(r.restore("你好世界"), "你好，世界。")
+
+        # shutdown（共享实例不被释放）
+        r.shutdown()
+        self.assertFalse(r.is_loaded)
+        self.assertIs(r._model, mock_model)  # 共享实例保留
+
+    def test_hotword_reload_with_watcher(self):
+        """FileWatcher 触发 pipeline reload（F2+TextPipeline 集成）"""
+        from core.file_watcher import FileWatcher
+        from core.text_pipeline import TextPipeline, ProcessResult
+        from core.hotword import HotwordManager
+
+        reload_count = [0]
+
+        def on_reload():
+            reload_count[0] += 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "hotwords.txt")
+            rules_file = os.path.join(tmpdir, "rules.txt")
+            with open(test_file, "w") as f:
+                f.write("旧热词\n")
+
+            hm = HotwordManager(hotwords_file=test_file, rules_file=rules_file)
+            tp = TextPipeline(hotword_manager=hm, enabled=True, case_sensitive=False)
+
+            fw = FileWatcher({test_file: on_reload}, debounce_seconds=0.3)
+            fw.start()
+            time.sleep(0.5)
+
+            # 修改文件
+            with open(test_file, "w") as f:
+                f.write("新热词\n")
+                f.flush()
+                os.fsync(f.fileno())
+            time.sleep(2.0)
+
+            fw.stop()
+
+            # 验证 TextPipeline 仍在工作
+            result = tp.process("测试文本")
+            self.assertIsInstance(result, ProcessResult)
+
+    def test_full_chain_emoji_punc_hotword(self):
+        """emoji 清理→标点恢复→热词替换全链路（F1+F3+TextPipeline）"""
+        from core.stt_funasr import FunASREngine
+        from core.punctuation import PunctuationRestorer
+        from core.text_pipeline import TextPipeline, ProcessResult
+        from core.hotword import HotwordManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Step 1: F1 emoji 清理（模拟 SenseVoice 输出）
+            raw = "你好😊世界<|EMO_HAPPY|>哈哈，测试😂"
+            cleaned = FunASREngine._postprocess_sensevoice(raw)
+            self.assertNotIn("😊", cleaned)
+            self.assertNotIn("😂", cleaned)
+            self.assertNotIn("EMO", cleaned)
+
+            # Step 2: F3 标点恢复（mock）
+            punc = PunctuationRestorer(enabled=True)
+            mock_model = MagicMock()
+            mock_model.generate.return_value = [{"text": cleaned}]
+            punc.set_shared_model(mock_model)
+            punctuated = punc.restore(cleaned)
+            self.assertIsInstance(punctuated, str)
+
+            # Step 3: TextPipeline（含热词）
+            hw_file = os.path.join(tmpdir, "hotwords.txt")
+            with open(hw_file, "w") as f:
+                f.write("你好世界\n")
+            hm = HotwordManager(hotwords_file=hw_file, rules_file="")
+            tp = TextPipeline(hotword_manager=hm, enabled=True, case_sensitive=False)
+            result = tp.process(punctuated)
+
+            # 验证全链路结果
+            self.assertIsInstance(result, ProcessResult)
+            text = result.text
+            self.assertNotIn("😊", text)
+            self.assertNotIn("EMO", text)
+            self.assertIn("你好", text)
+
+            # 清理
+            punc.shutdown()
+
+
 if __name__ == "__main__":
     unittest.main()

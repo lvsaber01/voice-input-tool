@@ -278,6 +278,7 @@ class CoreEngine:
                 logger.info("热词配置未设置，跳过热词系统初始化")
                 self._hotword_manager = None
                 self._text_pipeline = None
+                self._punctuation_restorer = None
                 return
 
             self._hotword_manager = HotwordManager(
@@ -295,12 +296,67 @@ class CoreEngine:
             # 同步 FunASR 原生热词
             self._on_pipeline_reloaded()
 
+            # F3: 标点恢复初始化（仅无标点 STT 模型）
+            self._punctuation_restorer = None
+            stt_engine_type = getattr(config.stt, "engine", "auto")
+            no_punc_models = {
+                "SenseVoiceSmall",
+                "SenseVoiceMedium",
+                "SenseVoiceLarge",
+                "Fun-ASR-Nano",
+            }
+            model_size = config.stt.model_size
+
+            if stt_engine_type == "funasr" and model_size in no_punc_models:
+                try:
+                    from core.punctuation import PunctuationRestorer
+
+                    self._punctuation_restorer = PunctuationRestorer(enabled=True)
+
+                    # 尝试复用 FunASR 引擎的 ct-punc 实例
+                    shared = self._get_stt_ct_punc_model()
+                    if shared is not None:
+                        self._punctuation_restorer.set_shared_model(shared)
+
+                    self._text_pipeline.set_punctuation_restorer(self._punctuation_restorer)
+                    logger.info("标点恢复已启用（%s 模式）", model_size)
+                except ImportError:
+                    logger.warning("标点恢复模块不可用")
+
+            # F2: 文件监控初始化
+            self._file_watcher = None
+            try:
+                from core.file_watcher import FileWatcher
+
+                reload_fn = (
+                    lambda: self._text_pipeline.schedule_reload()
+                    if self._text_pipeline
+                    else None
+                )
+                watch_paths = {}
+
+                if self._hotword_manager:
+                    for filename in ["hotwords.txt", "hotwords-phoneme.txt", "rules.txt"]:
+                        file_dir = self._hotword_manager.data_dir
+                        if file_dir:
+                            watch_paths[str(file_dir / filename)] = reload_fn
+
+                if watch_paths:
+                    self._file_watcher = FileWatcher(watch_paths, debounce_seconds=1.0)
+                    self._file_watcher.start()
+                    logger.info("文件监控已启动，监控 %d 个文件", len(watch_paths))
+            except ImportError:
+                logger.warning("watchdog 未安装，文件监控不可用。pip install watchdog")
+            except Exception as e:
+                logger.warning("文件监控启动失败: %s", e)
+
             logger.info("热词系统初始化完成: enabled=%s, case_sensitive=%s",
                        hw_config.enabled, hw_config.case_sensitive)
         except Exception as e:
             logger.error("热词系统初始化失败，降级为禁用: %s", e, exc_info=True)
             self._hotword_manager = None
             self._text_pipeline = None
+            self._punctuation_restorer = None
 
     def _on_pipeline_reloaded(self):
         """pipeline reload 后同步更新 FunASR 原生热词。"""
@@ -308,6 +364,31 @@ class CoreEngine:
             if hasattr(self._stt_engine, 'load_hotwords'):
                 hotword_list = self._hotword_manager.get_model_hotword_list()
                 self._stt_engine.load_hotwords(hotword_list)
+
+    def _get_stt_ct_punc_model(self):
+        """获取 STT 引擎的 ct-punc 模型实例。
+
+        按优先级尝试：
+        1. FunASREngine.get_punctuation_model()（公开方法）
+        2. 向后兼容：直接访问内部属性
+
+        注意：如果引擎尚未加载模型，可能返回 None。
+        """
+        if not self._stt_engine:
+            return None
+        if hasattr(self._stt_engine, "get_punctuation_model"):
+            try:
+                model = self._stt_engine.get_punctuation_model()
+                if model is not None:
+                    return model
+            except Exception:
+                pass
+        # 向后兼容
+        if hasattr(self._stt_engine, "model") and hasattr(
+            self._stt_engine.model, "punc_model"
+        ):
+            return self._stt_engine.model.punc_model
+        return None
 
     # ============================================================
     # 实时转写模式
@@ -634,6 +715,18 @@ class CoreEngine:
                 logger.warning("停止录音器失败: %s", e)
         if self._silence_detector:
             self._silence_detector.shutdown()
+        # F2: 文件监控停止
+        if hasattr(self, '_file_watcher') and self._file_watcher:
+            try:
+                self._file_watcher.stop()
+            except Exception as e:
+                logger.warning("停止文件监控失败: %s", e)
+        # F3: 标点恢复关闭（在 FunASR engine shutdown 之前）
+        if hasattr(self, '_punctuation_restorer') and self._punctuation_restorer:
+            try:
+                self._punctuation_restorer.shutdown()
+            except Exception as e:
+                logger.warning("停止标点恢复失败: %s", e)
         if self._stt_engine:
             self._stt_engine.shutdown()
 

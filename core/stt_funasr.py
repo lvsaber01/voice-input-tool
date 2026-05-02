@@ -16,6 +16,27 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# 预编译 Emoji 清除正则（F1：SenseVoice 输出清理）
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # Emoticons
+    "\U0001F300-\U0001F5FF"  # Misc Symbols and Pictographs
+    "\U0001F680-\U0001F6FF"  # Transport and Map
+    "\U0001F700-\U0001F77F"  # Alchemical Symbols
+    "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
+    "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess Symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\U0001FAE0-\U0001FAEF"  # Symbols for Legacy Computing (Unicode 13+)
+    "\U00002702-\U000027B0"  # Dingbats
+    "\U0001F1E0-\U0001F1FF"  # Flags (Regional Indicator)
+    "\U0001F3FB-\U0001F3FF"  # Skin Tone Modifiers
+    "\U0000200D"              # ZWJ (Zero Width Joiner)
+    "]+",
+    flags=re.UNICODE,
+)
+
 # 抑制 FunASR 模型内部的冗余日志（如每次转写打印完整热词列表）
 logging.getLogger("funasr.models.seaco_paraformer").setLevel(logging.WARNING)
 logging.getLogger("funasr.models.contextual_paraformer").setLevel(logging.WARNING)
@@ -127,7 +148,7 @@ class FunASREngine:
                     del os.environ['MODELSCOPE_ENDPOINT']
         except ImportError as e:
             logger.error("funasr 导入失败: %s", e)
-            return False, f'funasr 导入失败: {e}'
+            return False, f'funasr 导入失败: {e}，请运行 pip install funasr'
         except Exception as e:
             error_msg = str(e)[:200]  # 截断防止日志注入
             logger.error("FunASR 模型加载失败: %s", error_msg)
@@ -270,19 +291,22 @@ class FunASREngine:
             logger.warning("Unexpected text type: %s", type(raw_text))
             return str(raw_text) if raw_text else ""
 
-        # 优先使用官方函数
+        # 第一步：rich_transcription_postprocess（去除 <|EMO_xxx|> 等标记）
         try:
             from funasr.utils.postprocess_utils import rich_transcription_postprocess
-            return rich_transcription_postprocess(raw_text)
+            text = rich_transcription_postprocess(raw_text)
         except (ImportError, AttributeError):
             logger.warning("rich_transcription_postprocess 不可用，使用 fallback")
+            text = raw_text
 
-        # Fallback：精确匹配已知标记类型
-        # 覆盖：EMO_*(情感)、Event_*(事件)、nospeech/Speech/woitn(语音状态)、
-        #        BGM/LAUGH(音频事件)、2-3字母语言代码(zh/en/ja/ko/yue等)
+        # Fallback 正则：清除 rich_transcription_postprocess 可能遗留的标记
         KNOWN_MARKERS = r'<\|(?:EMO_\w+|Event_\w+|nospeech|Speech|woitn|BGM|LAUGH|[a-z]{2,3})\|>'
-        text = re.sub(KNOWN_MARKERS, '', raw_text)
-        return text.strip()
+        text = re.sub(KNOWN_MARKERS, '', text)
+
+        # 第二步：清除残留 emoji 字符
+        text = _EMOJI_PATTERN.sub('', text)
+        text = text.strip()
+        return text
 
     @staticmethod
     def _unpack_result(future: Future) -> tuple:
@@ -307,6 +331,20 @@ class FunASREngine:
         if result[0]:
             return result[0][0] or ""
         return ""
+
+    def get_punctuation_model(self):
+        """获取引擎内部的 ct-punc 模型实例（公开接口）。
+
+        供 PunctuationRestorer 复用，避免重复加载（节省 ~300MB 内存）。
+
+        Returns:
+            FunASR AutoModel 实例或 None（引擎未加载 / 无 ct-punc）
+        """
+        if hasattr(self, "model") and self.model is not None:
+            punc = getattr(self.model, "punc_model", None)
+            if punc is not None:
+                return punc
+        return None
 
     def shutdown(self):
         """关闭线程池"""

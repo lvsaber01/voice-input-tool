@@ -18,6 +18,8 @@ import tempfile
 import types
 import unittest
 import logging
+import threading
+from unittest.mock import MagicMock, patch
 
 # Windows 上 import torch 触发 WinError 206（路径过长），
 # 预注册 mock 模块防止真实 import
@@ -305,6 +307,251 @@ class TestEngineState(unittest.TestCase):
         logger.info("engine state chain valid")
 
 
+class TestPostprocessEnhancement(unittest.TestCase):
+    """后处理增强功能 Windows 测试（F1 Emoji + F2 Watchdog + F3 Punctuation）"""
+
+    def setUp(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows only")
+
+    # ── F1 Emoji 清理 ──
+
+    def test_14_emoji_chinese_text(self):
+        """中文含 emoji 清理后无 emoji"""
+        from core.stt_funasr import FunASREngine
+        result = FunASREngine._postprocess_sensevoice("你好😊世界😂测试")
+        # 不应包含任何 emoji
+        self.assertNotIn("😊", result)
+        self.assertNotIn("😂", result)
+        # 中文应保留
+        self.assertIn("你好", result)
+        self.assertIn("世界", result)
+        self.assertIn("测试", result)
+        logger.info("✅ 中文 emoji 清理正常")
+
+    def test_15_emoji_english_text(self):
+        """英文含 emoji 清理后无 emoji"""
+        from core.stt_funasr import FunASREngine
+        result = FunASREngine._postprocess_sensevoice("Hello😊 World😂 Test")
+        self.assertNotIn("😊", result)
+        self.assertNotIn("😂", result)
+        self.assertIn("Hello", result)
+        self.assertIn("World", result)
+        logger.info("✅ 英文 emoji 清理正常")
+
+    def test_15b_emo_marker_cleanup(self):
+        """EMO 标记清除"""
+        from core.stt_funasr import FunASREngine
+        result = FunASREngine._postprocess_sensevoice(
+            "文本<|EMO_HAPPY|>更多<|EMO_SAD|>内容"
+        )
+        self.assertNotIn("EMO", result)
+        self.assertNotIn("<|", result)
+        self.assertNotIn("|>", result)
+        self.assertIn("文本", result)
+        self.assertIn("内容", result)
+        logger.info("✅ EMO 标记清除正常")
+
+    def test_16_emoji_zwj_sequence(self):
+        """ZWJ 组合 emoji（👨‍👩‍👧）清除"""
+        from core.stt_funasr import FunASREngine
+        # ZWJ 序列: U+1F468 ZWJ U+1F469 ZWJ U+1F467
+        result = FunASREngine._postprocess_sensevoice(
+            "家庭👨\u200D👩\u200D👧文本"
+        )
+        self.assertEqual(result, "家庭文本")
+        logger.info("✅ ZWJ 序列 emoji 清理正常")
+
+    def test_17_cjk_not_affected(self):
+        """纯中文不被误伤"""
+        from core.stt_funasr import FunASREngine
+        text = "你好世界测试中文标点，句号。问号？感叹号！"
+        result = FunASREngine._postprocess_sensevoice(text)
+        self.assertEqual(result, text)
+        logger.info("✅ 纯中文不受影响")
+
+    # ── F2 文件 Watchdog ──
+
+    def test_18_file_watcher_init(self):
+        """FileWatcher 初始化（import 检查）"""
+        from core.file_watcher import FileWatcher, _WATCHDOG_AVAILABLE
+        self.assertIsNotNone(FileWatcher)
+        self.assertIsInstance(_WATCHDOG_AVAILABLE, bool)
+        logger.info("✅ FileWatcher 导入正常 (watchdog=%s)", _WATCHDOG_AVAILABLE)
+
+    def test_19_file_watcher_missing_file(self):
+        """文件不存在时监控目录，创建后不崩溃"""
+        from core.file_watcher import FileWatcher
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "nonexistent.txt")
+            callback = MagicMock()
+            fw = FileWatcher({test_file: callback}, debounce_seconds=0.5)
+            fw.start()
+            self.assertTrue(fw.is_watching, "应启动目录监控")
+            # 创建文件
+            time.sleep(1.0)
+            with open(test_file, "w") as f:
+                f.write("created")
+            time.sleep(2.0)
+            fw.stop()
+            logger.info("✅ 文件不存在时目录监控正常")
+
+    def test_20_file_watcher_edit_trigger(self):
+        """编辑文件后触发回调"""
+        from core.file_watcher import FileWatcher
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "test.txt")
+            with open(test_file, "w") as f:
+                f.write("initial")
+                f.flush()
+                os.fsync(f.fileno())
+            callback = MagicMock()
+            fw = FileWatcher({test_file: callback}, debounce_seconds=0.5)
+            fw.start()
+            time.sleep(1.0)
+            # 修改文件
+            with open(test_file, "w") as f:
+                f.write("modified")
+                f.flush()
+                os.fsync(f.fileno())
+            time.sleep(3.0)  # 等待防抖 + ReadDirectoryChangesW
+            fw.stop()
+            callback.assert_called()
+            logger.info("✅ 文件编辑触发回调正常")
+
+    def test_21_file_watcher_debounce(self):
+        """防抖合并：快速多次编辑只触发一次回调"""
+        from core.file_watcher import FileWatcher
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "test.txt")
+            with open(test_file, "w") as f:
+                f.write("initial")
+            callback = MagicMock()
+            fw = FileWatcher({test_file: callback}, debounce_seconds=1.0)
+            fw.start()
+            time.sleep(1.0)
+            # 快速连续修改 5 次
+            for i in range(5):
+                with open(test_file, "w") as f:
+                    f.write(f"version{i}")
+                time.sleep(0.05)
+            time.sleep(3.0)  # 等待防抖
+            fw.stop()
+            self.assertLessEqual(callback.call_count, 2,
+                                  f"防抖应合并为 1-2 次，实际 {callback.call_count} 次")
+            logger.info("✅ 防抖合并正常 (回调 %d 次)", callback.call_count)
+
+    def test_22_file_watcher_delete_and_recreate(self):
+        """删除后重建触发回调"""
+        from core.file_watcher import FileWatcher
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "test.txt")
+            with open(test_file, "w") as f:
+                f.write("initial")
+            callback = MagicMock()
+            fw = FileWatcher({test_file: callback}, debounce_seconds=0.5)
+            fw.start()
+            time.sleep(1.0)
+            # 删除
+            os.remove(test_file)
+            time.sleep(1.5)
+            # 重建
+            with open(test_file, "w") as f:
+                f.write("recreated")
+            time.sleep(2.0)
+            fw.stop()
+            logger.info("✅ 删除重建不崩溃")
+
+    def test_23_file_watcher_watchdog_unavailable(self):
+        """watchdog 不可用时降级"""
+        from core.file_watcher import _WATCHDOG_AVAILABLE
+        if _WATCHDOG_AVAILABLE:
+            # watchdog 已安装，验证正常创建
+            from core.file_watcher import FileWatcher
+            fw = FileWatcher({"/tmp/test.txt": lambda: None})
+            self.assertIsNotNone(fw)
+            logger.info("✅ watchdog 可用，FileWatcher 正常")
+        else:
+            # watchdog 未安装，FileWatcher 类仍可导入
+            from core.file_watcher import FileWatcher
+            fw = FileWatcher({"/tmp/test.txt": lambda: None})
+            self.assertIsNotNone(fw)
+            # start 应 no-op 或不崩溃
+            fw.start()
+            self.assertFalse(fw._started)
+            fw.stop()
+            logger.info("✅ watchdog 不可用，FileWatcher 优雅降级")
+
+    # ── F3 标点恢复 ──
+
+    def test_24_punctuation_disabled(self):
+        """禁用时返回原文"""
+        from core.punctuation import PunctuationRestorer
+        r = PunctuationRestorer(enabled=False)
+        self.assertEqual(r.restore("你好世界测试"), "你好世界测试")
+        logger.info("✅ 标点恢复禁用时返回原文")
+
+    def test_25_punctuation_restore_mock(self):
+        """mock 模型测试标点恢复调用"""
+        from core.punctuation import PunctuationRestorer
+        r = PunctuationRestorer(enabled=True)
+        mock_model = MagicMock()
+        mock_model.generate.return_value = [{"text": "你好，世界。"}]
+        r._model = mock_model
+        r._loaded = True
+        result = r.restore("你好世界")
+        self.assertEqual(result, "你好，世界。")
+        mock_model.generate.assert_called_once()
+        logger.info("✅ mock 标点恢复调用正常")
+
+    def test_26_punctuation_shared_model(self):
+        """共享模型注入"""
+        from core.punctuation import PunctuationRestorer
+        r = PunctuationRestorer(enabled=True)
+        mock_model = MagicMock()
+        r.set_shared_model(mock_model)
+        self.assertTrue(r.is_loaded)
+        self.assertTrue(r._shared_model)
+        self.assertIs(r._model, mock_model)
+        # 共享实例 shutdown 后不被释放
+        r.shutdown()
+        self.assertIs(r._model, mock_model)
+        self.assertFalse(r.is_loaded)
+        logger.info("✅ 共享模型注入正常")
+
+    def test_27_punctuation_thread_safety(self):
+        """多线程并发调用安全"""
+        from core.punctuation import PunctuationRestorer
+        r = PunctuationRestorer(enabled=True)
+        mock_model = MagicMock()
+        mock_model.generate.return_value = [{"text": "结果"}]
+        r._model = mock_model
+        r._loaded = True
+
+        results = []
+        errors = []
+
+        def worker(text_id):
+            try:
+                result = r.restore(f"测试文本{text_id}")
+                results.append(result)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=worker, args=(i,))
+            for i in range(10)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(len(errors), 0, f"并发错误: {errors}")
+        self.assertEqual(len(results), 10)
+        logger.info("✅ 多线程并发调用安全")
+
+
 if __name__ == "__main__":
     # 按顺序执行
     loader = unittest.TestLoader()
@@ -314,6 +561,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestSTTEngine))
     suite.addTests(loader.loadTestsFromTestCase(TestStreamingTranscriber))
     suite.addTests(loader.loadTestsFromTestCase(TestEngineState))
+    suite.addTests(loader.loadTestsFromTestCase(TestPostprocessEnhancement))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

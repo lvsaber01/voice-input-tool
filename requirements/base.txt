@@ -12,3 +12,4 @@ huggingface_hub>=0.19.0
 webrtcvad-wheels>=2.0.10
 opencc-python-reimplemented>=0.1.7
 scipy>=1.7
+watchdog>=3.0.0

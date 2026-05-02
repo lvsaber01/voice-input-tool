@@ -9,6 +9,7 @@ v1.0 — 对应设计文档 v3.0
 import os
 import re
 import logging
+import pathlib
 import tempfile
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -58,6 +59,21 @@ class HotwordManager:
             self.load_rules_from_file(rules_path)
 
     # ─── 文件路径解析 ───
+
+    @property
+    def data_dir(self) -> Optional[pathlib.Path]:
+        """热词文件所在目录路径。
+
+        用于 FileWatcher 构造监控路径（文件可能尚未创建）。
+        Returns:
+            pathlib.Path 或 None
+        """
+        # 优先用户数据目录
+        user_data_dir = os.environ.get("VOICE_INPUT_TOOL_USER_DATA", "")
+        if user_data_dir:
+            return pathlib.Path(user_data_dir)
+        # 回退项目根目录
+        return pathlib.Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def resolve_file_path(self, filename: str) -> Optional[str]:
         """解析文件路径：用户目录优先，回退项目默认目录。"""
