@@ -1,26 +1,148 @@
 # 音素热词文件 — 基于发音相似度匹配
 # 每行一个热词，# 开头为注释
-#
-# 中文热词：同音/近音字自动纠错
-撒贝宁
-东方财富
+# 中文热词：同音/近音字自动纠错（如"库达"→"CUDA"）
+# 英文热词：拼写错误自动纠错（匹配时忽略大小写）
+
+# ==========================================
+#  AI & 科技公司 — 常被误识别的
+# ==========================================
+英伟达
 科大讯飞
-乐清
-张三丰
-腾讯会议
-阿里巴巴
+商汤科技
 字节跳动
+阿里巴巴
 拼多多
 小红书
+月之暗面
+智谱清言
+零一万物
+阶跃星辰
+深度求索
+Anthropic
+Midjourney
+Runway
+ElevenLabs
+Perplexity
+HuggingFace
 
-# 英文热词：拼写错误自动纠错（匹配时忽略大小写）
-Claude
-PyTorch
+# ==========================================
+#  技术术语 — 高频同音词纠错
+# ==========================================
+CUDA
 Docker
 GitHub
-HuggingFace
-OpenAI
+Claude
+PyTorch
+TensorFlow
+LangChain
+LlamaIndex
+Vercel
+Heroku
+Supabase
+Elasticsearch
+ClickHouse
+Redis
+MongoDB
+PostgreSQL
+WebSocket
+Protocol Buffers
+GraphQL
+WebAssembly
+Kubernetes
+Terraform
+Vite
+Tailwind
+FastAPI
+Scikit-learn
+Pandas
+NumPy
+Jupyter
+MLX
+ComfyUI
+ControlNet
+Gradio
+Streamlit
 
-# 中英文混合热词
+# ==========================================
+#  AI 产品 — 常被误识别的
+# ==========================================
 OpenClaw
-HuggingFace
+Hermes
+ChatGPT
+Stable Diffusion
+DeepSeek
+Gemini
+Llama
+Mistral
+Qwen
+FunASR
+SenseVoice
+Whisper
+GPT-4o
+GPT-5
+Claude 4 Opus
+Dify
+Coze
+Cursor
+Notion
+Obsidian
+Figma
+
+# ==========================================
+#  硬件 & GPU
+# ==========================================
+英伟达
+RTX 4090
+RTX 5090
+Apple Silicon
+A100
+H100
+H200
+B200
+Tensor Core
+
+# ==========================================
+#  游戏专有名词 — 高频同音纠错
+# ==========================================
+原神 -> Genshin
+崩坏 -> Honkai
+星穹铁道
+绝区零
+鸣潮
+黑神话悟空
+艾尔登法环 -> Elden Ring
+塞尔达 -> Zelda
+宝可梦 -> Pokémon
+王者荣耀
+和平精英
+我的世界 -> Minecraft
+荒野大镖客 -> RDR2
+赛博朋克 -> Cyberpunk 2077
+博德之门 -> Baldur's Gate 3
+巫师 -> The Witcher
+怪物猎人 -> Monster Hunter
+生化危机 -> Resident Evil
+最终幻想 -> Final Fantasy
+只狼
+虚幻引擎 -> Unreal Engine
+
+# ==========================================
+#  人名/品牌 — 容易被语音误识别
+# ==========================================
+撒贝宁
+乐清
+张三丰
+飞书
+飞书群
+Saber
+Altria
+
+# ==========================================
+#  多媒体
+# ==========================================
+FFmpeg
+WebRTC
+PulseAudio
+CoreAudio
+Opus
+H.264

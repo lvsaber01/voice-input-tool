@@ -1,44 +1,11 @@
 # 热词文件 — 每行一条，# 开头为注释
+# 格式：词（精确替换+原生热词）/ 匹配 -> 替换（仅文本替换，不传原生热词）
 
-飞书
-飞书群
-英伟达
-热词
-采样率
-静音检测
-语音输入工具
-Obsidian
-Saber
-Altria
+# ==========================================
+#  AI 大模型 & 公司
+# ==========================================
 OpenClaw
 Hermes
-CUDA
-Docker
-Linux
-MacOS -> macOS
-Git
-GitHub
-npm
-API
-SDK
-OAuth
-HTTPS
-WebSocket
-RESTful
-CRUD
-JSON
-YAML
-Markdown
-Nginx
-Redis
-MySQL
-PostgreSQL
-MongoDB
-SQLite
-Kafka
-RabbitMQ
-FunASR
-SenseVoice
 GPT
 ChatGPT
 Claude
@@ -52,17 +19,35 @@ GLM
 Sora
 Midjourney
 Stable Diffusion
-LangChain
-LlamaIndex
-Hugging Face
-Transformers
-PyTorch
-TensorFlow
-ONNX
 OpenAI
 Anthropic
 Meta AI
 Google DeepMind
+Hugging Face
+Transformers
+OpenAI o1 -> o1
+OpenAI o3 -> o3
+GPT-4o
+GPT-4
+GPT-5
+Claude 4 Opus
+Sonnet
+Opus
+Haiku
+GLM-5
+GLM-4
+Qwen 2.5
+Qwen 3
+DeepSeek V3
+DeepSeek R1
+Llama 4
+Mistral Large
+Phi-3
+Yi
+
+# ==========================================
+#  AI 技术术语
+# ==========================================
 Prompt Engineering
 RAG
 Fine-tuning
@@ -87,18 +72,28 @@ Top-P
 Context Window
 Knowledge Distillation
 Quantization
-AWS
-Azure
-GCP
-Vercel
-Heroku
-DigitalOcean
-Cloudflare
-Serverless
-Kubernetes -> K8s
-Docker Compose
-Terraform
-CI/CD
+Zero-shot
+Few-shot
+Pre-training
+Alignment
+Constitutional AI
+DPO
+PPO
+GrPO
+MoE -> Mixture of Experts
+CoT
+RAG -> Retrieval-Augmented Generation
+AGI
+ASR
+TTS
+STT
+Whisper
+FunASR
+SenseVoice
+
+# ==========================================
+#  编程语言 & 框架
+# ==========================================
 Python
 JavaScript
 TypeScript
@@ -121,18 +116,468 @@ Bun
 Deno
 Zod
 Prisma
+Tailwind
+Bootstrap
+Svelte
+SolidJS
+Astro
+Remix
+Nuxt
+FastAPI
+Django
+Flask
+Spring Boot
+Express
+Koa
+Gin
+Echo
+Actix
+Rocket
+Phoenix
+Elixir
+Ruby on Rails -> Rails
+Laravel
+Docker Compose
+Terraform
+Pulumi
+
+# ==========================================
+#  数据 & AI 工具库
+# ==========================================
 Jupyter
 Pandas
 NumPy
-Scikit-learn
+Scikit-learn -> sklearn
 Matplotlib
 Spark
 Airflow
 dbt
-FFmpeg
+LangChain
+LlamaIndex
+PyTorch
+TensorFlow
+ONNX
+vLLM
+TensorRT
+Triton
+MLX
+Hugging Face
+Gradio
+Streamlit
+Dify
+Coze
+ComfyUI
+Automatic1111
+ControlNet
+LoRA
+IP-Adapter
+
+# ==========================================
+#  云服务 & 基础设施
+# ==========================================
+AWS
+Azure
+GCP
+Vercel
+Heroku
+DigitalOcean
+Cloudflare
+Serverless
+Kubernetes -> K8s
+Docker
+Docker Compose
+Nginx
+Redis
+MySQL
+PostgreSQL
+MongoDB
+SQLite
+Kafka
+RabbitMQ
+Elasticsearch
+ClickHouse
+DuckDB
+Supabase
+PlanetScale
+Neon
+Railway
+Fly.io
+Render
+Netlify
+Tencent Cloud
+Alibaba Cloud
+Huawei Cloud
+ByteDance Volcano -> 火山引擎
+
+# ==========================================
+#  协议 & 格式
+# ==========================================
+API
+SDK
+OAuth
+HTTPS
+WebSocket
+RESTful
+CRUD
+JSON
+YAML
+Markdown
+Protocol Buffers -> Protobuf
+GraphQL
+gRPC
+WebAssembly -> WASM
 WebRTC
+
+# ==========================================
+#  编码 & 工具
+# ==========================================
+Git
+GitHub
+GitLab
+npm
+pnpm
+yarn
+pip
+poetry
+conda
+maven
+gradle
+cargo
+brew
+VS Code
+Cursor
+IntelliJ
+WebStorm
+PyCharm
+Xcode
+Android Studio
+Postman
+Insomnia
+Figma
+Notion
+Obsidian
+飞书
+飞书群
+Saber
+Altria
+
+# ==========================================
+#  GPU & 硬件
+# ==========================================
+CUDA
+cuDNN
+NCCL
+Tensor Core
+英伟达
+NVIDIA
+RTX
+GTX
+RTX 4090
+RTX 5090
+RTX 3090
+A100
+H100
+H200
+B200
+T4
+L4
+L40S
+A6000
+Apple Silicon
+M1 Max
+M2 Ultra
+M3 Max
+M4 Pro
+VRAM
+显存
+算力
+TFLOPS
+
+# ==========================================
+#  音频 & 多媒体
+# ==========================================
+FFmpeg
 Opus
 H.264
 VP9
 AV1
+HEVC -> H.265
 OBS
+PulseAudio
+ALSA
+CoreAudio
+ASIO
+采样率
+静音检测
+语音输入工具
+
+# ==========================================
+#  游戏相关
+# ==========================================
+Steam
+Epic Games
+原神
+Genshin
+崩坏 -> Honkai
+星穹铁道
+绝区零
+鸣潮
+黑神话悟空
+艾尔登法环 -> Elden Ring
+塞尔达 -> Zelda
+马里奥 -> Mario
+宝可梦 -> Pokémon
+英雄联盟 -> LOL
+王者荣耀
+和平精英
+PUBG
+CS2 -> Counter-Strike 2
+瓦罗兰特 -> Valorant
+Apex
+Fortnite
+我的世界 -> Minecraft
+Roblox
+荒野大镖客 -> RDR2
+GTA
+赛博朋克 -> Cyberpunk 2077
+博德之门 -> Baldur's Gate 3
+巫师 -> The Witcher
+只狼
+怪物猎人 -> Monster Hunter
+生化危机 -> Resident Evil
+最终幻想 -> Final Fantasy
+如龙
+街霸 -> Street Fighter
+格斗游戏
+动作游戏
+角色扮演 -> RPG
+射击游戏
+开放世界
+独立游戏
+3A
+游戏引擎
+虚幻引擎 -> Unreal Engine
+Unity
+Godot
+Mod
+NPC
+DPS
+AOE
+CD
+Buff
+Debuff
+CC -> Crowd Control
+AFK
+GG
+GGWP
+MMO
+MOBA
+FPS
+TPS
+RPG
+Roguelike
+类魂
+抽卡
+十连
+保底
+命座
+圣遗物
+天赋树
+赛季
+段位
+排位
+匹配
+组队
+公会
+战队
+服务器
+延迟
+Ping
+帧率
+FPS
+刷新率
+4K
+144Hz
+光线追踪 -> RTX
+DLSS
+FSR
+
+# ==========================================
+#  科技产品 & 生态
+# ==========================================
+iPhone
+iPad
+MacBook
+Apple Watch
+AirPods
+AirPods Pro
+AirPods Max
+HomePod
+Vision Pro
+Mac Mini
+iMac
+Mac Pro
+Mac Studio
+Apple TV
+Magic Keyboard
+Magic Mouse
+Trackpad
+Safari
+Arc -> Arc Browser
+Chrome
+Firefox
+Edge
+Brave
+Windows
+Windows 11
+MacOS
+Linux
+Ubuntu
+Debian
+CentOS
+Arch Linux -> Arch
+Fedora
+Alpine
+NixOS
+Android
+iOS
+iPadOS
+watchOS
+tvOS
+HarmonyOS -> 鸿蒙
+WSL
+SSH
+Vim
+Neovim
+Emacs
+Tmux
+iTerm
+Zsh
+Bash
+Fish shell -> Fish
+Oh My Zsh
+Homebrew
+Nix
+Flatpak
+Snap
+Docker Desktop
+Rancher
+Portainer
+Traefik
+Caddy
+
+# ==========================================
+#  通讯 & 社交
+# ==========================================
+微信
+QQ
+钉钉
+企业微信
+Teams
+Slack
+Discord
+Telegram
+WhatsApp
+Signal
+X -> Twitter
+Reddit
+B站
+哔哩哔哩
+YouTube
+TikTok -> 抖音
+抖音
+小红书
+知乎
+微博
+即刻
+V2EX
+GitHub
+Stack Overflow
+MDN
+掘金
+CSDN
+SegmentFault
+LeetCode
+力扣
+
+# ==========================================
+#  行业 & 公司
+# ==========================================
+字节跳动
+阿里巴巴
+腾讯
+拼多多
+京东
+美团
+百度
+华为
+小米
+oppo -> OPPO
+vivo -> vivo
+大疆
+科大讯飞
+商汤
+旷视
+依图
+月之暗面
+智谱
+零一万物
+百川
+MiniMax
+阶跃星辰
+深度求索
+Anthropic
+Midjourney
+Runway
+Pika
+HeyGen
+Suno
+Udio
+Kling
+Junction AI
+Ideogram
+Flux
+Stability AI
+ElevenLabs
+AssemblyAI
+Whisper
+AssemblyAI
+DeepL
+Perplexity
+
+# ==========================================
+#  数学 & 常用缩写
+# ==========================================
+LR -> Learning Rate
+GD -> Gradient Descent
+SGD
+Adam -> Adam Optimizer
+Batch Size
+Epoch
+Loss
+Accuracy
+Precision
+Recall
+F1
+IoU
+BLEU
+ROUGE
+Perplexity
+NLP
+CV
+LLM
+SLM -> Small Language Model
+MLM -> Masked Language Model
+RL -> Reinforcement Learning
+DL -> Deep Learning
+ML -> Machine Learning
+GAN -> Generative Adversarial Network
+VAE
+GAN
+Diffusion
+Latent Space
+Tokenizer
+Vocabulary
+BPE -> Byte Pair Encoding
+SentencePiece
+Tiktoken
