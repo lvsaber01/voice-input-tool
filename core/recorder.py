@@ -30,6 +30,7 @@ class AudioRecorder:
     def __init__(self, config):
         self.config = config
         self.is_recording = False
+        self._paused = False  # 暂停标志（GIL 下 bool 赋值原子，无需锁）
         self._buffer: deque = deque()
         self._buffer_queue: queue.Queue = queue.Queue()
         self._rt_queue = None  # 实时模式专用队列（可选）
@@ -238,11 +239,27 @@ class AudioRecorder:
                 logger.error("拼接/重采样音频失败: %s", e)
         return np.array([], dtype=np.float32)
 
+    def pause(self):
+        """暂停采样（丢弃采集的数据，不放入 buffer/queue）。
+
+        线程安全说明：self._paused 是 bool 类型，在 CPython GIL 下
+        单字节赋值是原子操作，无需额外锁保护。
+        """
+        self._paused = True
+        logger.debug("录音器已暂停")
+
+    def resume(self):
+        """恢复采样。"""
+        self._paused = False
+        logger.debug("录音器已恢复")
+
     def _audio_callback(self, indata, frames, time_info, status):
         """sounddevice 回调（实时线程）
 
         ⚠ 关键约束：此方法在实时音频线程中执行，只做数据拷贝！
         """
+        if self._paused:
+            return  # 暂停时丢弃采集数据
         chunk = indata.copy()
         self._buffer.append(chunk)
         self._buffer_queue.put(chunk)

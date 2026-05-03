@@ -21,6 +21,7 @@ class EngineState(Enum):
     RECORDING = auto()      # 录音中（批量模式）
     PROCESSING = auto()     # STT 识别中（批量模式）
     STREAMING = auto()      # 实时转写监听中（实时模式）
+    PAUSED = auto()         # 实时转写暂停中
     INJECTING = auto()      # 文字注入中
     ERROR = auto()          # 错误状态（可恢复）
     LOADING = auto()        # 模型加载中（启动阶段）
@@ -35,7 +36,8 @@ _VALID_TRANSITIONS: dict[EngineState, set[EngineState]] = {
     EngineState.IDLE: {EngineState.RECORDING, EngineState.STREAMING, EngineState.LOADING},
     EngineState.RECORDING: {EngineState.PROCESSING},
     EngineState.PROCESSING: {EngineState.INJECTING, EngineState.IDLE},
-    EngineState.STREAMING: {EngineState.IDLE},
+    EngineState.STREAMING: {EngineState.IDLE, EngineState.PAUSED},
+    EngineState.PAUSED: {EngineState.STREAMING, EngineState.IDLE},
     EngineState.INJECTING: {EngineState.IDLE},
     EngineState.ERROR: {EngineState.LOADING, EngineState.IDLE},
 }
@@ -72,6 +74,11 @@ class CoreEngine:
         # 录音最大时长 timer
         self._max_duration_timer: Optional[threading.Timer] = None
 
+        # 实时转写段落追踪（导出用）
+        self._segment_counter = 0
+        self._segments_lock = threading.Lock()
+        self._session_segments: list = []
+
         # 子模块
         from core.recorder import AudioRecorder
         from core.silence_detector import SilenceDetector
@@ -79,79 +86,14 @@ class CoreEngine:
         from core.sound_player import SoundPlayer
         
         # 根据配置选择 STT 引擎和转写模式
-        stt_engine_type = getattr(config.stt, 'engine', 'auto')
-
-        # auto 模式：macOS 选 mlx_whisper，其他选 funasr
-        if stt_engine_type == 'auto':
-            import platform
-            if platform.system() == 'Darwin':
-                stt_engine_type = 'mlx_whisper'
-            else:
-                # 向后兼容：如果用户之前的 model_size 是 whisper 格式，保持 faster_whisper
-                whisper_sizes = ('tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo')
-                if config.stt.model_size in whisper_sizes:
-                    stt_engine_type = 'faster_whisper'
-                    logger.info("auto 模式：检测到 whisper model_size，保持 faster_whisper")
-                else:
-                    stt_engine_type = 'funasr'
-                    # auto 模式 Windows/Linux 默认用 SenseVoiceSmall
-                    funasr_sizes = ('paraformer-zh', 'paraformer-zh-streaming', 'paraformer-en', 'SenseVoiceSmall', 'Fun-ASR-Nano')
-                    if config.stt.model_size not in funasr_sizes:
-                        config.stt.model_size = 'SenseVoiceSmall'
-            logger.info("auto 模式：选择 %s 引擎", stt_engine_type)
-
-        # streaming_enabled 对 mlx_whisper 和 funasr 都生效
-        streaming_enabled = getattr(config.stt.streaming, 'enabled', False) if \
-            stt_engine_type in ('funasr', 'mlx_whisper') else False
-
-        if streaming_enabled and stt_engine_type == 'funasr':
-            # 流式模式：FunASR 流式引擎 + StreamingTranscriber
-            from core.stt_funasr_streaming import FunASRStreamingEngine
-            from core.streaming_transcriber import StreamingTranscriber
-            self._stt_engine = FunASRStreamingEngine(config.stt)
-            self._stream_transcriber = StreamingTranscriber(config.stt.streaming)
-            self._streaming_mode = True
-            logger.info("使用流式转写模式 (FunASR streaming)")
-        elif stt_engine_type == 'funasr':
-            # 分段模式：FunASR 非流式引擎 + VAD分段转写器
-            from core.stt_funasr import FunASREngine
-            from core.vad_segment_transcriber import VADSegmentTranscriber
-            self._stt_engine = FunASREngine(config.stt)
-            self._stream_transcriber = VADSegmentTranscriber(
-                config.realtime, self._stt_engine, self._on_realtime_segment
-            )
-            self._streaming_mode = False
-            logger.info("使用VAD分段转写模式 (FunASR)")
-        elif stt_engine_type == 'mlx_whisper':
-            # mlx-whisper：分段模式（VADSegmentTranscriber + MlxWhisperEngine）
-            from core.stt_mlx_whisper import MlxWhisperEngine
-            from core.vad_segment_transcriber import VADSegmentTranscriber
-            self._stt_engine = MlxWhisperEngine(config.stt)
-            self._stream_transcriber = VADSegmentTranscriber(
-                config.realtime, self._stt_engine, self._on_realtime_segment
-            )
-            self._streaming_mode = False
-            logger.info("使用VAD分段转写模式 (mlx-whisper)")
-        elif stt_engine_type == 'qwen3_asr':
-            # Qwen3-ASR：分段模式
-            from core.stt_qwen3_asr import Qwen3ASREngine
-            from core.vad_segment_transcriber import VADSegmentTranscriber
-            self._stt_engine = Qwen3ASREngine(config.stt)
-            self._stream_transcriber = VADSegmentTranscriber(
-                config.realtime, self._stt_engine, self._on_realtime_segment
-            )
-            self._streaming_mode = False
-            logger.info("使用VAD分段转写模式 (Qwen3-ASR)")
+        if config.mode == "realtime" and hasattr(config, 'stt_realtime'):
+            stt_config = config.stt_realtime.resolve(config.stt)
+            logger.info("realtime 模式：使用 stt_realtime 配置 (engine=%s, model=%s)",
+                        stt_config.engine, stt_config.model_size)
         else:
-            # faster-whisper：只有分段模式
-            from core.stt_engine import STTEngine
-            from core.vad_segment_transcriber import VADSegmentTranscriber
-            self._stt_engine = STTEngine(config.stt)
-            self._stream_transcriber = VADSegmentTranscriber(
-                config.realtime, self._stt_engine, self._on_realtime_segment
-            )
-            self._streaming_mode = False
-            logger.info("使用VAD分段转写模式 (faster-whisper)")
+            stt_config = config.stt
+
+        self._create_stt_engine(stt_config)
 
         self._recorder = AudioRecorder(config.audio)
         self._silence_detector = SilenceDetector(config.audio, self._on_silence_timeout,
@@ -163,12 +105,80 @@ class CoreEngine:
         self._init_hotword_pipeline(config)
         
         # 流式模式音频队列（由 engine.py 创建，应用 max_queue_size）
-        max_queue_size = getattr(config.stt.streaming, 'max_queue_size', 300) if self._streaming_mode else 300
-        self._rt_audio_queue = None  # 在 _start_streaming 时创建
-        self._rt_max_queue_size = max_queue_size
+        # 注意：max_queue_size 已在 _create_stt_engine 中设置
 
         # 启动静音检测消费者线程
         self._silence_detector.start(self._recorder.get_buffer_queue())
+
+    def _create_stt_engine(self, stt_config):
+        """根据 STT 配置创建引擎和转写器（从 __init__ 抽取）"""
+        stt_engine_type = stt_config.engine
+
+        # auto 模式检测逻辑（与原 __init__ 一致）
+        if stt_engine_type == "auto":
+            import platform
+            if platform.system() == "Darwin":
+                stt_engine_type = "mlx_whisper"
+            else:
+                whisper_sizes = ('tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo')
+                if stt_config.model_size in whisper_sizes:
+                    stt_engine_type = "faster_whisper"
+                    logger.info("auto 模式：检测到 whisper model_size，保持 faster_whisper")
+                else:
+                    stt_engine_type = "funasr"
+                    # auto 模式 Windows/Linux 默认用 SenseVoiceSmall
+                    funasr_sizes = ('paraformer-zh', 'paraformer-zh-streaming', 'paraformer-en', 'SenseVoiceSmall', 'Fun-ASR-Nano')
+                    if stt_config.model_size not in funasr_sizes:
+                        stt_config.model_size = 'SenseVoiceSmall'
+            logger.info("auto 模式：选择 %s 引擎", stt_engine_type)
+
+        streaming_enabled = getattr(stt_config.streaming, 'enabled', False) if \
+            stt_engine_type in ('funasr', 'mlx_whisper') else False
+
+        if streaming_enabled and stt_engine_type == 'funasr':
+            from core.stt_funasr_streaming import FunASRStreamingEngine
+            from core.streaming_transcriber import StreamingTranscriber
+            self._stt_engine = FunASRStreamingEngine(stt_config)
+            self._stream_transcriber = StreamingTranscriber(stt_config.streaming)
+            self._streaming_mode = True
+            logger.info("使用流式转写模式 (FunASR streaming)")
+        elif stt_engine_type == 'funasr':
+            from core.stt_funasr import FunASREngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = FunASREngine(stt_config)
+            self._stream_transcriber = VADSegmentTranscriber(
+                self._config.realtime, self._stt_engine, self._on_realtime_segment)
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (FunASR)")
+        elif stt_engine_type == 'mlx_whisper':
+            from core.stt_mlx_whisper import MlxWhisperEngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = MlxWhisperEngine(stt_config)
+            self._stream_transcriber = VADSegmentTranscriber(
+                self._config.realtime, self._stt_engine, self._on_realtime_segment)
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (mlx-whisper)")
+        elif stt_engine_type == 'qwen3_asr':
+            from core.stt_qwen3_asr import Qwen3ASREngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = Qwen3ASREngine(stt_config)
+            self._stream_transcriber = VADSegmentTranscriber(
+                self._config.realtime, self._stt_engine, self._on_realtime_segment)
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (Qwen3-ASR)")
+        else:
+            from core.stt_engine import STTEngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            self._stt_engine = STTEngine(stt_config)
+            self._stream_transcriber = VADSegmentTranscriber(
+                self._config.realtime, self._stt_engine, self._on_realtime_segment)
+            self._streaming_mode = False
+            logger.info("使用VAD分段转写模式 (faster-whisper)")
+
+        # 音频队列初始化
+        max_queue_size = getattr(stt_config.streaming, 'max_queue_size', 300) if self._streaming_mode else 300
+        self._rt_audio_queue = None  # 在 _start_streaming 时创建
+        self._rt_max_queue_size = max_queue_size
 
     # ============================================================
     # 属性
@@ -293,6 +303,15 @@ class CoreEngine:
             )
             self._text_pipeline.register_reload_callback(self._on_pipeline_reloaded)
 
+            # ITN 数字转换步骤（根据配置注册）
+            itn_config = getattr(config, 'itn', None)
+            if itn_config is None or getattr(itn_config, 'enabled', True):
+                from core.itn import ITNStep
+                self._text_pipeline.add_step(ITNStep(enabled=True))
+                logger.info("ITN 数字转换已启用")
+            else:
+                logger.info("ITN 数字转换已禁用")
+
             # 同步 FunASR 原生热词
             self._on_pipeline_reloaded()
 
@@ -310,6 +329,7 @@ class CoreEngine:
             if stt_engine_type == "funasr" and model_size in no_punc_models:
                 try:
                     from core.punctuation import PunctuationRestorer
+                    from core.pipeline_step import StepNames
 
                     self._punctuation_restorer = PunctuationRestorer(enabled=True)
 
@@ -318,7 +338,12 @@ class CoreEngine:
                     if shared is not None:
                         self._punctuation_restorer.set_shared_model(shared)
 
-                    self._text_pipeline.set_punctuation_restorer(self._punctuation_restorer)
+                    # 通过 get_step 接口设置标点恢复器
+                    punct_step = self._text_pipeline.get_step(StepNames.PUNCTUATION)
+                    if punct_step is not None:
+                        punct_step.set_restorer(self._punctuation_restorer)
+                    else:
+                        self._text_pipeline.set_punctuation_restorer(self._punctuation_restorer)
                     logger.info("标点恢复已启用（%s 模式）", model_size)
                 except ImportError:
                     logger.warning("标点恢复模块不可用")
@@ -431,6 +456,97 @@ class CoreEngine:
             except Exception as e:
                 logger.error("停止实时转写失败: %s", e)
 
+            # 清理会话段落数据
+            with self._segments_lock:
+                self._session_segments.clear()
+                self._segment_counter = 0
+
+    def toggle_pause(self):
+        """暂停/继续实时转写（互斥锁 + 停止生产者 + 回滚）。
+
+        STREAMING → PAUSED：暂停 transcriber + recorder，播放暂停音效
+        PAUSED → STREAMING：恢复 transcriber + recorder，播放恢复音效
+        """
+        with self._state_lock:  # 防止多线程并发 toggle
+            if self._state == EngineState.STREAMING:
+                try:
+                    self._stream_transcriber.pause()
+                    if hasattr(self._recorder, 'pause'):
+                        self._recorder.pause()
+                except Exception as e:
+                    logger.error("暂停失败: %s", e)
+                    return
+                if self._transition_locked(EngineState.PAUSED):
+                    self._sound_player.play("pause")
+                    self._events.publish(EngineEvent.RECORDING_PAUSED)
+                else:
+                    # 状态转移失败，回滚
+                    try:
+                        self._stream_transcriber.resume()
+                        if hasattr(self._recorder, 'resume'):
+                            self._recorder.resume()
+                    except Exception as e:
+                        logger.error("暂停回滚失败: %s", e)
+            elif self._state == EngineState.PAUSED:
+                try:
+                    self._stream_transcriber.resume()
+                    if hasattr(self._recorder, 'resume'):
+                        self._recorder.resume()
+                except Exception as e:
+                    logger.error("恢复失败: %s", e)
+                    return
+                if self._transition_locked(EngineState.STREAMING):
+                    self._sound_player.play("resume")
+                    self._events.publish(EngineEvent.RECORDING_RESUMED)
+                else:
+                    # 状态转移失败，回滚
+                    try:
+                        self._stream_transcriber.pause()
+                        if hasattr(self._recorder, 'pause'):
+                            self._recorder.pause()
+                    except Exception as e:
+                        logger.error("恢复回滚失败: %s", e)
+            else:
+                logger.debug("toggle_pause: 当前状态 %s，忽略", self._state.name)
+
+    def get_session_segments(self) -> list:
+        """获取当前实时转写会话的所有段落数据。"""
+        with self._segments_lock:
+            return list(self._session_segments)
+
+    def export_session(self, filepath: str, format: str = "txt") -> bool:
+        """导出当前转写会话到文件。
+
+        Args:
+            filepath: 输出文件路径
+            format: 导出格式 (txt/markdown)
+        Returns:
+            True=导出成功
+        """
+        with self._segments_lock:
+            segments = list(self._session_segments)
+
+        if not segments:
+            logger.warning("无段落数据可导出")
+            return False
+
+        try:
+            if format == "markdown":
+                lines = ["# 转写记录", ""]
+                for i, seg in enumerate(segments, 1):
+                    lines.append(f"{i}. {seg}")
+                content = "\n".join(lines)
+            else:
+                content = "\n".join(segments)
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info("会话已导出: %s (%d 段)", filepath, len(segments))
+            return True
+        except Exception as e:
+            logger.error("导出失败: %s", e)
+            return False
+
     def _on_realtime_segment(self, text: str):
         if self._shutdown_event.is_set():
             return
@@ -460,6 +576,11 @@ class CoreEngine:
             self._injector.inject(full_text)
         except Exception as e:
             logger.error("实时段落注入失败: %s", e)
+
+        # 段落追踪
+        with self._segments_lock:
+            self._segment_counter += 1
+            self._session_segments.append(text)
 
     # ============================================================
     # 内部方法（批量模式）
@@ -691,6 +812,10 @@ class CoreEngine:
     # ============================================================
 
     def shutdown(self):
+        # v3.1: 幂等保护，防止多次调用
+        if self._shutdown_event.is_set():
+            logger.debug("shutdown 已执行，跳过重复调用")
+            return
         logger.info("CoreEngine 开始关闭...")
         self._shutdown_event.set()
 

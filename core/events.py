@@ -22,6 +22,8 @@ class EngineEvent(Enum):
     RMS_UPDATE = auto()             # (level, is_speech)
     MAX_DURATION_TRIGGERED = auto() # ()
     COMMAND_EXECUTED = auto()       # (command_name,)
+    RECORDING_PAUSED = auto()       # ()
+    RECORDING_RESUMED = auto()      # ()
     ENGINE_SHUTDOWN = auto()        # ()
 
 

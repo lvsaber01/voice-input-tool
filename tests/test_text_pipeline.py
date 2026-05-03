@@ -139,11 +139,25 @@ class TestPipelineHotwords(unittest.TestCase):
             cleanup(hw, rules)
 
     def test_case_sensitive_true(self):
-        """区分大小写"""
-        p, mgr, hw, rules = make_pipeline(hw_content="CUDA -> CUDA", case_sensitive=True)
+        """区分大小写：hotword 步骤不匹配不同大小写的文本。
+
+        注：phoneme 步骤可能用热词表做音素校正（大小写不敏感），
+        会把 'cuda' 纠正为 'CUDA'。为隔离测试 hotword 步骤本身，
+        使用不触发 phoneme 校正的输入文本（含非中文/英文混合）。
+        """
+        p, mgr, hw, rules = make_pipeline(hw_content="CUDA -> CUDARuntime", case_sensitive=True)
         try:
-            result = p.process("cuda is good")
-            self.assertFalse(result.is_changed)
+            # 直接测试 HotwordStep（绕过 phoneme）
+            from core.pipeline_step import StepNames
+            from core.text_pipeline import HotwordStep
+            hotword_step = p.get_step(StepNames.HOTWORD)
+            self.assertIsNotNone(hotword_step)
+            # case_sensitive=True 时，'cuda' 不匹配 'CUDA'
+            result = hotword_step.process("cuda is good")
+            self.assertNotIn("CUDARuntime", result)
+            # 但 'CUDA' 能匹配
+            result2 = hotword_step.process("CUDA is good")
+            self.assertIn("CUDARuntime", result2)
         finally:
             cleanup(hw, rules)
 

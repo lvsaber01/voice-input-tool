@@ -18,6 +18,9 @@ import platform
 import threading
 from pathlib import Path
 
+# v3.1: 模式切换重启事件（线程安全）
+_restart_event = threading.Event()
+
 # 项目根目录（支持打包后路径）
 if getattr(sys, 'frozen', False):
     # PyInstaller 打包后：exe 所在目录
@@ -228,6 +231,20 @@ def main():
                 model_path = PROJECT_ROOT / model_path
         model_path.mkdir(parents=True, exist_ok=True)
 
+        # v3.1: 检查重启标志文件（必须在配置加载后、引擎创建前）
+        RESTART_FLAG = USER_DATA_DIR / ".restarting"
+        restart_from_switch = False
+        restart_mode_label = ""
+        if RESTART_FLAG.exists():
+            try:
+                mode_name = RESTART_FLAG.read_text().strip()
+                restart_mode_label = "实时转写" if mode_name == "realtime" else "批量录音"
+                logger.info("检测到重启标志：从模式切换重启，新模式: %s", mode_name)
+                RESTART_FLAG.unlink(missing_ok=True)
+                restart_from_switch = True
+            except Exception as e:
+                logger.warning("处理重启标志失败: %s", e)
+
         # 6. 定义退出回调
         def on_shutdown_complete():
             logger.info("关闭完成，准备退出")
@@ -263,13 +280,56 @@ def main():
                 tray.stop()
 
         def _on_tray_switch_mode():
-            """托盘菜单切换模式"""
+            """v3.1: 托盘菜单切换模式（重启方案）"""
+            from core.engine import EngineState
+            # 防重入 + 显式状态校验
+            if _restart_event.is_set():
+                logger.warning("模式切换：已在重启流程中，忽略重复请求")
+                return
+            if engine.state != EngineState.IDLE:
+                logger.warning("模式切换：当前状态 %s，仅 IDLE 状态可切换", engine.state.name)
+                if tray:
+                    tray.show_notification("切换失败", "当前状态不允许切换模式")
+                return
+            
             current = config.mode
             new_mode = "realtime" if current == "batch" else "batch"
+            
+            # 保存配置
             config.mode = new_mode
+            try:
+                from config import save_config
+                save_config(config_path, config)
+            except Exception as e:
+                logger.error("模式切换：配置保存失败: %s", e)
+                # 回滚内存中的 mode，保持与磁盘一致
+                config.mode = current
+                if tray:
+                    tray.set_mode(current)
+                    tray.show_notification("切换失败", f"配置保存失败: {e}")
+                return
+            
+            logger.info("模式切换: %s → %s，准备重启", current, new_mode)
+            _restart_event.set()
+            
+            # 通知用户
+            mode_label = "实时转写" if new_mode == "realtime" else "批量录音"
             if tray:
-                tray.set_mode(new_mode)
-            logger.info("模式切换: %s → %s", current, new_mode)
+                tray.show_notification("模式切换", f"正在切换到{mode_label}模式，即将重启...")
+            
+            # 延迟 2.0s 后写入标志文件 + 停止托盘
+            def _deferred_stop():
+                import time
+                time.sleep(2.0)
+                # 写入重启标志文件
+                try:
+                    RESTART_FLAG.write_text(new_mode)
+                    logger.info("写入重启标志: %s (%s)", RESTART_FLAG, new_mode)
+                except Exception as e:
+                    logger.warning("写入重启标志失败: %s（不影响重启）", e)
+                logger.info("模式切换：停止托盘，触发主循环退出")
+                tray.stop()
+            threading.Thread(target=_deferred_stop, daemon=True, name="restart-delay").start()
 
         tray = TrayIcon(
             on_start=_on_tray_start_stop,
@@ -279,6 +339,9 @@ def main():
             on_retry=_on_tray_retry_model,
             on_switch_mode=_on_tray_switch_mode,
         )
+
+        # v3.1: 设置初始模式
+        tray.set_mode(config.mode)
 
         # 8. 初始化 CoreEngine
         from core.engine import CoreEngine
@@ -368,22 +431,47 @@ def main():
 
         logger.info("语音输入工具启动完成，进入托盘主循环")
 
+        # v3.1: 如果是模式切换重启，监听 IDLE 状态显示"已切换"通知
+        if restart_from_switch and tray:
+            def _on_state_changed(old_state, new_state):
+                from core.engine import EngineState
+                if new_state == EngineState.IDLE:
+                    tray.show_notification("模式已切换", f"已切换到{restart_mode_label}模式")
+                    engine.events.unsubscribe(EngineEvent.STATE_CHANGED, _on_state_changed)
+            engine.events.subscribe(EngineEvent.STATE_CHANGED, _on_state_changed)
+
         # 12. 进入 pystray 主循环（阻塞，必须在主线程）
         tray.run()
 
         # 主循环退出后清理
-        engine.shutdown()
+        engine.shutdown()  # v3.1: 幂等，安全
         if hotkey_manager:
             try:
                 hotkey_manager.unregister()
             except Exception:
                 pass
 
+        # v3.1: 模式切换重启逻辑
+        if _restart_event.is_set():
+            import subprocess
+            cmd = [sys.executable] if getattr(sys, 'frozen', False) else [sys.executable] + sys.argv
+            logger.info("模式切换：启动新进程 %s", cmd)
+            try:
+                subprocess.Popen(cmd)
+            except Exception as e:
+                logger.critical("模式切换：启动新进程失败: %s", e)
+                _restart_event.clear()  # 回退到正常退出流程
+            else:
+                # Popen 成功：释放锁，新进程被唤醒
+                instance_lock.release()
+
     except Exception as e:
         logger.critical("启动失败: %s", e, exc_info=True)
         sys.exit(1)
     finally:
-        instance_lock.release()
+        if not _restart_event.is_set():
+            # 正常退出 或 Popen 失败回退：释放锁
+            instance_lock.release()
         logger.info("语音输入工具已退出")
         logging.shutdown()
 

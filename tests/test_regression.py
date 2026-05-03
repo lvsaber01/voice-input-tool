@@ -201,5 +201,52 @@ stt:
             os.unlink(temp_path)
 
 
+class TestModeSwitchRegression(unittest.TestCase):
+    """模式切换功能回归测试 — 验证变更不影响现有功能"""
+
+    def test_regression_batch_mode_default_config(self):
+        """回归：默认配置仍为 batch 模式"""
+        from config import AppConfig
+        cfg = AppConfig()
+        self.assertEqual(cfg.mode, "batch")
+
+    def test_regression_stt_config_unchanged(self):
+        """回归：config.stt 字段不受 stt_realtime 影响"""
+        from config import AppConfig, STTConfig
+        cfg = AppConfig()
+        # 默认 stt 应保持不变
+        self.assertEqual(cfg.stt.engine, "auto")
+        self.assertEqual(cfg.stt.model_size, "large-v3-turbo")
+        # stt_realtime 不影响 stt
+        self.assertEqual(cfg.stt_realtime.engine, "funasr")
+        self.assertNotEqual(cfg.stt.engine, cfg.stt_realtime.engine)
+
+    def test_regression_funasr_streaming_works(self):
+        """回归：FunASR 流式引擎仍可创建"""
+        from config import STTConfig, StreamingConfig
+        # FunASR streaming 配置应能正常创建
+        cfg = STTConfig(
+            engine="funasr",
+            model_size="paraformer-zh-streaming",
+            streaming=StreamingConfig(enabled=True),
+        )
+        self.assertTrue(cfg.streaming.enabled)
+        self.assertEqual(cfg.engine, "funasr")
+        self.assertEqual(cfg.model_size, "paraformer-zh-streaming")
+
+    def test_regression_all_engine_imports(self):
+        """回归：所有引擎模块仍可导入"""
+        # 验证各引擎模块可导入（不初始化）
+        try:
+            from core.stt_engine import STTEngine
+            from core.stt_funasr import FunASREngine
+            from core.stt_funasr_streaming import FunASRStreamingEngine
+            from core.vad_segment_transcriber import VADSegmentTranscriber
+            from core.streaming_transcriber import StreamingTranscriber
+            self.assertTrue(True)
+        except ImportError as e:
+            self.fail(f"引擎模块导入失败: {e}")
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

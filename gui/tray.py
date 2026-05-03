@@ -21,6 +21,7 @@ _STATE_COLORS = {
     EngineState.RECORDING: "#F44336",   # 红色
     EngineState.PROCESSING: "#FF9800",  # 橙黄色
     EngineState.STREAMING: "#2196F3",   # 蓝色（实时转写）
+    EngineState.PAUSED: "#FFC107",      # 琥珀色（暂停）
     EngineState.INJECTING: "#9C27B0",   # 紫色（注入中）
     EngineState.LOADING: "#9E9E9E",     # 灰色
     EngineState.ERROR: "#D32F2F",       # 深红色
@@ -32,6 +33,7 @@ _STATE_LABELS = {
     EngineState.RECORDING: "录音中",
     EngineState.PROCESSING: "识别中",
     EngineState.STREAMING: "实时转写中",
+    EngineState.PAUSED: "已暂停",
     EngineState.INJECTING: "注入中",
     EngineState.LOADING: "加载中",
     EngineState.ERROR: "错误",
@@ -132,10 +134,16 @@ class TrayIcon:
             else:
                 items.append(pystray.MenuItem("🎤 开始录音", self._on_start, default=False))
 
-        # 模式切换
+        # 模式切换：仅在 IDLE 状态可用 (v3.1)
         if not is_recording and not is_loading:
             mode_label = "📝 切换到实时转写" if self._current_mode == "batch" else "🎤 切换到批量录音"
-            items.append(pystray.MenuItem(mode_label, self._on_switch_mode_clicked, default=False))
+            is_idle = self._state == EngineState.IDLE
+            items.append(pystray.MenuItem(
+                mode_label,
+                self._on_switch_mode_clicked,
+                default=False,
+                enabled=is_idle  # v3.1: 仅 IDLE 可点击
+            ))
 
         items.append(pystray.Menu.SEPARATOR)
 

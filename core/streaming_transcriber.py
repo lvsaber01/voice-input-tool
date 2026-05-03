@@ -39,6 +39,7 @@ class StreamingTranscriber:
         """
         self._config = config
         self._running = False
+        self._paused = False  # 暂停标志
         self._thread: Optional[threading.Thread] = None
         self._inject_thread: Optional[threading.Thread] = None
         self._inject_queue = queue.Queue(maxsize=20)  # 解耦注入，容量提升
@@ -111,7 +112,17 @@ class StreamingTranscriber:
         self._inject_thread.start()
         
         logger.info("流式转写器已启动 (chunk_samples=%d)", self._chunk_samples)
-    
+
+    def pause(self):
+        """暂停转写处理（音频仍会采集但不送入引擎）。"""
+        self._paused = True
+        logger.debug("流式转写器已暂停")
+
+    def resume(self):
+        """恢复转写处理。"""
+        self._paused = False
+        logger.debug("流式转写器已恢复")
+
     def stop(self):
         """停止流式转写，处理剩余音频"""
         self._running = False
@@ -179,6 +190,13 @@ class StreamingTranscriber:
         logger.debug("流式转写主循环开始")
         
         while self._running:
+            if self._paused:
+                # 暂停时丢弃队列中的音频，防止恢复后积压
+                try:
+                    self._audio_queue.get(timeout=0.1)
+                except queue.Empty:
+                    pass
+                continue
             try:
                 chunk = self._audio_queue.get(timeout=0.5)
                 with self._buffer_lock:

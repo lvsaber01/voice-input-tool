@@ -11,7 +11,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # 当前配置版本
-CURRENT_CONFIG_VERSION = 8
+CURRENT_CONFIG_VERSION = 10
 
 
 # ============================================================
@@ -21,7 +21,7 @@ CURRENT_CONFIG_VERSION = 8
 @dataclass
 class HotkeyConfig:
     """热键配置"""
-    trigger: str = "f8"
+    trigger: str = "f9"  # v3.1: 从 f8 改为 f9
     mode: str = "toggle"          # push_to_talk | toggle
     conflict_check: bool = True
 
@@ -237,12 +237,55 @@ class RealtimeConfig:
 
 
 @dataclass
+class STTRealtimeConfig:
+    """realtime 模式专用 STT 配置
+    
+    缺失字段 fallback 到 stt 配置的 resolve() 方法处理。
+    """
+    engine: str = "funasr"
+    model_size: str = "paraformer-zh-streaming"
+    language: Optional[str] = None   # None = 从 stt 继承
+    device: str = ""                 # 空字符串 = 从 stt 继承
+    compute_type: str = ""
+    hf_endpoint: str = ""
+    modelscope_endpoint: str = ""
+    streaming: Optional[StreamingConfig] = None  # None = 使用默认（enabled=True）
+
+    def resolve(self, fallback_stt: STTConfig) -> STTConfig:
+        """解析为完整 STTConfig，缺失字段从 fallback_stt 继承。
+        
+        统一使用 None / 空字符串 作为 fallback 触发条件，
+        避免 language 用 is not None 而 device 用 != "auto" 的不一致。
+        """
+        return STTConfig(
+            engine=self.engine,
+            model_size=self.model_size,
+            language=self.language if self.language is not None else fallback_stt.language,
+            device=self.device if self.device else fallback_stt.device,
+            compute_type=self.compute_type if self.compute_type else fallback_stt.compute_type,
+            hf_endpoint=self.hf_endpoint if self.hf_endpoint else fallback_stt.hf_endpoint,
+            modelscope_endpoint=self.modelscope_endpoint if self.modelscope_endpoint else fallback_stt.modelscope_endpoint,
+            streaming=self.streaming if self.streaming is not None else StreamingConfig(enabled=True),
+            beam_size=fallback_stt.beam_size,
+            max_new_tokens=fallback_stt.max_new_tokens,
+            model_path=fallback_stt.model_path,
+        )
+
+
+@dataclass
+class ITNConfig:
+    """逆文本正则化（ITN）配置"""
+    enabled: bool = True                    # ITN 总开关
+
+
+@dataclass
 class AppConfig:
     """应用总配置"""
-    config_version: int = 2
+    config_version: int = 10  # v3.1: 9 → 10
     mode: str = "batch"                    # batch | realtime
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
+    stt_realtime: STTRealtimeConfig = field(default_factory=STTRealtimeConfig)  # v3.1: realtime 模式专用 STT 配置
     audio: AudioConfig = field(default_factory=AudioConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
@@ -250,7 +293,8 @@ class AppConfig:
     startup: StartupConfig = field(default_factory=StartupConfig)
     command: CommandConfig = field(default_factory=CommandConfig)
     realtime: RealtimeConfig = field(default_factory=RealtimeConfig)
-    hotword: HotwordConfig = field(default_factory=HotwordConfig)
+    hotword: HotkeyConfig = field(default_factory=HotwordConfig)
+    itn: ITNConfig = field(default_factory=ITNConfig)
 
 
 # ============================================================
@@ -268,6 +312,8 @@ _SUB_CONFIG_TYPES: Dict[str, type] = {
     "command": CommandConfig,
     "realtime": RealtimeConfig,
     "hotword": HotwordConfig,
+    "stt_realtime": STTRealtimeConfig,  # v3.1: realtime 模式专用 STT 配置
+    "itn": ITNConfig,
     "streaming": StreamingConfig,  # 新增
 }
 
@@ -405,6 +451,26 @@ def _migrate_v7_to_v8(raw: Dict[str, Any]) -> Dict[str, Any]:
     return raw
 
 
+def _migrate_v8_to_v9(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v8 → v9: 新增 itn 配置段"""
+    raw["config_version"] = 9
+    if "itn" not in raw:
+        raw["itn"] = {"enabled": True}
+    return raw
+
+
+def _migrate_v9_to_v10(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """v9 → v10: 新增 stt_realtime 配置节（realtime 模式专用 STT 配置）"""
+    raw["config_version"] = 10
+    if "stt_realtime" not in raw:
+        raw["stt_realtime"] = {
+            "engine": "funasr",
+            "model_size": "paraformer-zh-streaming",
+            "streaming": {"enabled": True}
+        }
+    return raw
+
+
 def _migrate_v6_to_v7(raw: Dict[str, Any]) -> Dict[str, Any]:
     """v6 → v7: 新增 audio.sample_rate 字段
 
@@ -427,6 +493,8 @@ CONFIG_MIGRATIONS = {
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
+    9: _migrate_v9_to_v10,  # v3.1: 新增 stt_realtime 配置节
 }
 
 

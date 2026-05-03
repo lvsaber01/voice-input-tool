@@ -91,6 +91,10 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._handle_post_hotword()
         elif path == "/api/hotword-rules":
             self._handle_post_hotword_rule()
+        elif path == "/api/record/pause":
+            self._handle_record_pause()
+        elif path == "/api/session/export":
+            self._handle_session_export()
         else:
             self._send_error_json(404, "未找到")
 
@@ -230,6 +234,51 @@ class _ConfigHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
         except Exception as e:
             self._send_error_json(500, f"切换录音失败: {e}")
+
+    def _handle_record_pause(self):
+        """POST /api/record/pause — 切换实时转写暂停/恢复"""
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            engine = self._server_ctx._engine
+            if engine is None:
+                self._send_error_json(503, "引擎未初始化")
+                return
+            engine.toggle_pause()
+            from core.engine import EngineState
+            state_name = engine._state.name
+            self._send_json(200, {"state": state_name})
+        except Exception as e:
+            self._send_error_json(500, f"暂停/恢复失败: {e}")
+
+    def _handle_session_export(self):
+        """POST /api/session/export — 导出转写会话
+
+        请求体: {"format": "txt"|"markdown", "path": "/path/to/file"}
+        """
+        if not self._verify_token():
+            self._send_error_json(403, "Token 校验失败")
+            return
+        try:
+            engine = self._server_ctx._engine
+            if engine is None:
+                self._send_error_json(503, "引擎未初始化")
+                return
+            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            fmt = body.get("format", "txt")
+            path = body.get("path")
+            if not path:
+                self._send_error_json(400, "缺少 path 参数")
+                return
+            segments = engine.get_session_segments()
+            success = engine.export_session(path, format=fmt)
+            if success:
+                self._send_json(200, {"segments": len(segments), "path": path})
+            else:
+                self._send_error_json(500, "导出失败（无数据或写入错误）")
+        except Exception as e:
+            self._send_error_json(500, f"导出失败: {e}")
 
     def _handle_test_transcribe(self):
         """POST /api/test/transcribe — 用合成音频测试 STT（自动录音→停止→返回结果）
