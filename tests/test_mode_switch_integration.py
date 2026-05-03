@@ -192,7 +192,7 @@ class TestTrayMenuModeSwitch(unittest.TestCase):
             on_switch_mode=MagicMock(),
         )
 
-        # 测试 IDLE 状态 — 模式切换应 enabled
+        # 测试 IDLE 状态 — 模式切换应存在且 enabled
         tray._state = EngineState.IDLE
         menu = tray._build_menu()
         mode_switch_item = None
@@ -200,30 +200,37 @@ class TestTrayMenuModeSwitch(unittest.TestCase):
             if hasattr(item, 'text') and '切换到' in str(getattr(item, 'text', '')):
                 mode_switch_item = item
                 break
-        self.assertIsNotNone(mode_switch_item, "未找到模式切换菜单项")
-        self.assertTrue(mode_switch_item.default_enabled)
+        self.assertIsNotNone(mode_switch_item, "IDLE状态未找到模式切换菜单项")
+        self.assertTrue(mode_switch_item.enabled)
 
-        # 测试 RECORDING 状态 — 模式切换应 disabled
+        # 测试 RECORDING 状态 — 模式切换菜单项不渲染（is_recording=True）
         tray._state = EngineState.RECORDING
         menu = tray._build_menu()
-        mode_switch_item = None
-        for item in menu._items:
-            if hasattr(item, 'text') and '切换到' in str(getattr(item, 'text', '')):
-                mode_switch_item = item
-                break
-        self.assertIsNotNone(mode_switch_item, "未找到模式切换菜单项")
-        self.assertFalse(mode_switch_item.default_enabled)
+        mode_switch_items = [
+            item for item in menu._items
+            if hasattr(item, 'text') and '切换到' in str(getattr(item, 'text', ''))
+        ]
+        self.assertEqual(len(mode_switch_items), 0, "RECORDING状态不应显示模式切换菜单项")
 
-        # 测试 STREAMING 状态 — 模式切换应 disabled
+        # 测试 STREAMING 状态 — 模式切换菜单项不渲染（is_recording=True）
         tray._state = EngineState.STREAMING
+        menu = tray._build_menu()
+        mode_switch_items = [
+            item for item in menu._items
+            if hasattr(item, 'text') and '切换到' in str(getattr(item, 'text', ''))
+        ]
+        self.assertEqual(len(mode_switch_items), 0, "STREAMING状态不应显示模式切换菜单项")
+
+        # 测试 ERROR 状态 — 菜单项存在但 disabled（is_idle=False）
+        tray._state = EngineState.ERROR
         menu = tray._build_menu()
         mode_switch_item = None
         for item in menu._items:
             if hasattr(item, 'text') and '切换到' in str(getattr(item, 'text', '')):
                 mode_switch_item = item
                 break
-        self.assertIsNotNone(mode_switch_item, "未找到模式切换菜单项")
-        self.assertFalse(mode_switch_item.default_enabled)
+        self.assertIsNotNone(mode_switch_item, "ERROR状态未找到模式切换菜单项")
+        self.assertFalse(mode_switch_item.enabled)
 
         # 测试 LOADING 状态 — 不会出现模式切换菜单项
         tray._state = EngineState.LOADING
